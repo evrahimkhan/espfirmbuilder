@@ -36,6 +36,10 @@ GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
 Never deploy with the example `APP_KEY`. Register the exact callback URLs shown in `config/config.php` with GitHub and Google. Connecting a repository inspects its Git tree, commits `.github/workflows/espforge-build.yml`, and later dispatches that workflow. Build links currently open the corresponding GitHub run, where artifacts can be downloaded. Repository analysis is deterministic by default; stored AI keys are ready for an optional model-assisted analyzer for non-standard layouts.
 
+## alwaysdata deployment
+
+Follow the complete [alwaysdata deployment guide](DEPLOY_ALWAYSdata.md). Production secrets belong in `config/config.local.php`, which is intentionally ignored by Git.
+
 ## Shared hosting deployment
 
 Point the web root to `public/`, import `database/schema.sql`, and keep `config/` outside direct HTTP access. If the host cannot change document root, deny web access to `config`, `src`, `database`, and `storage`. HTTPS is required for Web Serial. ProFreeHost capabilities vary; GitHub webhooks need a publicly reachable HTTPS PHP endpoint.
