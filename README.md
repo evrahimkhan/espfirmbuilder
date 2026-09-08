@@ -7,7 +7,11 @@ A PHP/MySQL MVP for AI-assisted ESP32 firmware builds through GitHub Actions and
 - Responsive product landing page and authenticated workspace
 - Email/password auth with secure sessions, CSRF protection, and OAuth entry points
 - Repository connection, build queue/history APIs, and dashboard
-- Web Serial device connection and firmware configuration UI
+- Real Web Serial flashing through `esptool-js`, including progress and board reset
+- GitHub OAuth callback, encrypted token storage, repository inspection, and workflow deployment
+- PlatformIO, ESP-IDF, and Arduino project detection with framework-specific workflow generation
+- Real GitHub Actions dispatch and build-run status reconciliation
+- Encrypted Google Gemini/OpenRouter credential settings
 - MySQL schema for users, repositories, builds, and flash profiles
 - AES-256-GCM helper for GitHub and AI credentials
 
@@ -30,7 +34,7 @@ GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 ```
 
-Never deploy with the example `APP_KEY`. OAuth callback handling, GitHub workflow dispatch/webhooks, AI repository analysis, artifact retrieval, and actual esptool flashing are intentionally marked as the next integration phase; the current build endpoint queues records, and the Web Serial screen validates device access.
+Never deploy with the example `APP_KEY`. Register the exact callback URLs shown in `config/config.php` with GitHub and Google. Connecting a repository inspects its Git tree, commits `.github/workflows/espforge-build.yml`, and later dispatches that workflow. Build links currently open the corresponding GitHub run, where artifacts can be downloaded. Repository analysis is deterministic by default; stored AI keys are ready for an optional model-assisted analyzer for non-standard layouts.
 
 ## Shared hosting deployment
 
