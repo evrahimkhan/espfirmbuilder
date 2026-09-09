@@ -7,7 +7,7 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
  $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
  $builds=$q->fetchAll();
  // Reconcile recent builds with GitHub runs while keeping dashboard polling inexpensive.
- if(($_GET['refresh']??'')==='1') try { $client=new GitHubClient(github_token((int)$user['id'])); foreach($builds as &$build){ if(!in_array($build['status'],['queued','in_progress'],true)) continue; $runs=$client->request('GET','/repos/'.$build['full_name'].'/actions/workflows/espforge-build.yml/runs?event=workflow_dispatch&per_page=10'); foreach($runs['workflow_runs']??[] as $run){ if(strtotime($run['created_at'])>=strtotime($build['created_at'])-10){ $q=db()->prepare('UPDATE builds SET github_run_id=?,status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?'); $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$run['status']==='completed'?date('Y-m-d H:i:s'):null,$build['id']]); $build['github_run_id']=$run['id'];$build['status']=$run['status'];$build['conclusion']=$run['conclusion'];break; } } } } catch(Throwable $ignored) {}
+ if(($_GET['refresh']??'')==='1') try { $client=new GitHubClient(github_token((int)$user['id'])); foreach($builds as &$build){ if(!in_array($build['status'],['queued','in_progress'],true)) continue; $runs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs?event=workflow_dispatch&per_page=20'); foreach($runs['workflow_runs']??[] as $run){ if(strtotime($run['created_at'])>=strtotime($build['created_at'])-10){ $q=db()->prepare('UPDATE builds SET github_run_id=?,status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?'); $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$run['status']==='completed'?date('Y-m-d H:i:s'):null,$build['id']]); $build['github_run_id']=$run['id'];$build['status']=$run['status'];$build['conclusion']=$run['conclusion'];break; } } } } catch(Throwable $ignored) {}
  json_response(['builds'=>$builds]);
 }
 verify_csrf(); $data=body(); $repo=(int)($data['repo_id']??0); $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$repo,$user['id']]); $repository=$q->fetch(); if(!$repository) json_response(['error'=>'Repository not found'],404);
@@ -21,7 +21,17 @@ try {
  $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
  $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: refresh ESPForge firmware build');
  $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);
- $github->dispatch($repository['full_name'],'espforge-build.yml',$repository['default_branch']);
- $q=db()->prepare("INSERT INTO builds(repo_id,status,logs) VALUES(?,'queued','Workflow synchronized and dispatched to GitHub Actions.')"); $q->execute([$repo]); json_response(['id'=>(int)db()->lastInsertId(),'status'=>'queued'],202);
+ $workflowFile='espforge-build.yml'; $inputs=[]; $buildMessage='ESPForge workflow synchronized and dispatched.';
+ // Some repositories use PlatformIO only for native unit tests and maintain their
+ // own hardware matrix. Dispatch that authoritative workflow instead of `pio run`.
+ if($analysis['framework']==='platformio' && in_array('.github/workflows/build_parallel.yml',$paths,true)){
+     $ini=$github->file($repository['full_name'],'platformio.ini',$repository['default_branch'])??'';
+     preg_match_all('/^\s*\[env:([^\]]+)\]/mi',$ini,$matches);
+     $firmwareEnvironments=array_values(array_filter($matches[1]??[],fn($env)=>strtolower(trim($env))!=='native'));
+     if(!$firmwareEnvironments){ $workflowFile='build_parallel.yml'; $inputs=['create_release'=>'false']; $buildMessage='Repository hardware-matrix workflow dispatched.'; }
+ }
+ if($workflowFile!=='espforge-build.yml') $github->enableWorkflow($repository['full_name'],$workflowFile);
+ $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs);
+ $q=db()->prepare("INSERT INTO builds(repo_id,status,logs) VALUES(?,'queued',?)"); $q->execute([$repo,$buildMessage]); json_response(['id'=>(int)db()->lastInsertId(),'status'=>'queued','workflow'=>$workflowFile],202);
 }
 catch(RuntimeException $e){ json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }

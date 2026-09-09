@@ -114,8 +114,15 @@ final class GitHubClient
         throw new RuntimeException("Your fork {$forkFullName} was requested but GitHub is still preparing it. Wait a moment and submit the original URL again.", 503);
     }
 
-    public function dispatch(string $fullName, string $workflow, string $branch): void
+    public function enableWorkflow(string $fullName, string $workflow): void
     {
-        $this->request('POST', "/repos/{$fullName}/actions/workflows/" . rawurlencode($workflow) . '/dispatches', ['ref' => $branch]);
+        $this->request('PUT', "/repos/{$fullName}/actions/workflows/" . rawurlencode($workflow) . '/enable');
+    }
+
+    public function dispatch(string $fullName, string $workflow, string $branch, array $inputs = []): void
+    {
+        $payload=['ref'=>$branch];
+        if($inputs) $payload['inputs']=$inputs;
+        $this->request('POST', "/repos/{$fullName}/actions/workflows/" . rawurlencode($workflow) . '/dispatches', $payload);
     }
 }
