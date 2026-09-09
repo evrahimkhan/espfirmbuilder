@@ -2,6 +2,7 @@
 require __DIR__ . '/../../src/bootstrap.php';
 require __DIR__ . '/../../src/GitHubClient.php';
 require __DIR__ . '/../../src/WorkflowEngine.php';
+require __DIR__ . '/../../src/TargetAnalyzer.php';
 $user=require_user();
 if($_SERVER['REQUEST_METHOD']==='GET'){
  $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
@@ -17,20 +18,25 @@ try {
  // projects connected with an older ESPForge generator without manual deletion.
  $tree=$github->tree($repository['full_name'],$repository['default_branch']); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');
  $analysis=WorkflowEngine::analyze($paths);
- $source=$analysis['framework']==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
- $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
- $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: refresh ESPForge firmware build');
- $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);
- $workflowFile='espforge-build.yml'; $inputs=[]; $buildMessage='ESPForge workflow synchronized and dispatched.';
- // Some repositories use PlatformIO only for native unit tests and maintain their
- // own hardware matrix. Dispatch that authoritative workflow instead of `pio run`.
- if($analysis['framework']==='platformio' && in_array('.github/workflows/build_parallel.yml',$paths,true)){
-     $ini=$github->file($repository['full_name'],'platformio.ini',$repository['default_branch'])??'';
-     preg_match_all('/^\s*\[env:([^\]]+)\]/mi',$ini,$matches);
-     $firmwareEnvironments=array_values(array_filter($matches[1]??[],fn($env)=>strtolower(trim($env))!=='native'));
-     if(!$firmwareEnvironments){ $workflowFile='build_parallel.yml'; $inputs=['create_release'=>'false']; $buildMessage='Repository hardware-matrix workflow dispatched.'; }
+ $targets=TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths);
+ $targetId=(string)($data['target_id']??'');
+ if(count($targets)>1 && $targetId==='') json_response(['error'=>'Select a hardware model before building.','code'=>'target_required','targets'=>$targets],422);
+ $target=TargetAnalyzer::select($targets,$targetId!==''?$targetId:(string)$targets[0]['id']);
+ if(!$target) json_response(['error'=>'The selected hardware model is invalid or no longer available.'],422);
+ $inputs=[];
+ if($target['type']==='workflow_matrix'){
+     $original=$github->file($repository['full_name'],$target['workflow_path'],$repository['default_branch']);
+     if(!$original) throw new RuntimeException('The repository hardware workflow could not be read.',404);
+     $workflow=TargetAnalyzer::filterMatrix($original,$target['flag'],$target['name']);
+     $inputs=['create_release'=>'false'];
+ } else {
+     $source=$analysis['framework']==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
+     $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
+     if($target['type']==='platformio') $workflow=str_replace('run: pio run','run: pio run -e '.escapeshellarg($target['environment']),$workflow);
  }
- if($workflowFile!=='espforge-build.yml') $github->enableWorkflow($repository['full_name'],$workflowFile);
+ $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name']);
+ $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);
+ $workflowFile='espforge-build.yml'; $buildMessage='Building selected model: '.$target['name'];
  $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs);
  $q=db()->prepare("INSERT INTO builds(repo_id,status,logs) VALUES(?,'queued',?)"); $q->execute([$repo,$buildMessage]); json_response(['id'=>(int)db()->lastInsertId(),'status'=>'queued','workflow'=>$workflowFile],202);
 }
