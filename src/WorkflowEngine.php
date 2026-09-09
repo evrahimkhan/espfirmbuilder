@@ -69,6 +69,8 @@ YAML;
         // Some legacy projects bundle platform.txt for the 2.0.x ESP32 core and do not compile on 3.x.
         $core=$legacy?'esp32:esp32@2.0.10':'esp32:esp32';
         $platformPatch=$legacy?'          cp "Libraries/platform.txt" "$HOME/.arduino15/packages/esp32/hardware/esp32/2.0.10/platform.txt"':'';
+        $isEsp32S3=preg_match('/^\s*#\s*define\s+BOARD_ESP32_DIV_V2\b/m',$source)===1 || preg_match('/\bESP32[-_ ]?S3\b/i',$source)===1;
+        $fqbn=$isEsp32S3?'esp32:esp32:esp32s3:PSRAM=enabled,PartitionScheme=min_spiffs,FlashMode=dio':'esp32:esp32:esp32';
         return <<<YAML
       - uses: actions/setup-python@v5
         with:
@@ -90,7 +92,7 @@ YAML;
         run: |
 {$install}
       - name: Compile firmware
-        run: arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir firmware-output "\$(dirname "\$(find . -name '*.ino' -print -quit)")"
+        run: arduino-cli compile --fqbn "{$fqbn}" --output-dir firmware-output "\$(dirname "\$(find . -name '*.ino' -print -quit)")"
       - uses: actions/upload-artifact@v4
         with:
           name: espforge-firmware
