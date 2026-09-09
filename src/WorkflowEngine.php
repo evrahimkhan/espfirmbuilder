@@ -14,7 +14,9 @@ final class WorkflowEngine
 
     public static function workflow(string $framework, array $paths=[], string $source=''): string
     {
-        $header="name: ESPForge firmware build\n\non:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@v4\n";
+        // Quote the trigger key and use an explicit empty mapping. This avoids YAML
+        // 1.1 parsers treating `on` as a boolean and guarantees GitHub registers it.
+        $header="name: ESPForge firmware build\n\n\"on\":\n  workflow_dispatch: {}\n\npermissions:\n  contents: read\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@v4\n";
         if($framework==='platformio') return $header.<<<'YAML'
       - uses: actions/setup-python@v5
         with:
