@@ -56,8 +56,10 @@ YAML;
     private static function arduinoSteps(array $paths,string $source): string
     {
         $legacy=count(array_filter($paths,fn($p)=>strtolower($p)==='libraries/platform.txt'))>0;
+        $isEsp32S3=preg_match('/^\s*#\s*define\s+BOARD_ESP32_DIV_V2\b/m',$source)===1 || preg_match('/\bESP32[-_ ]?S3\b/i',$source)===1;
         $map=[
             'PCF8574.h'=>'PCF8574 library','Adafruit_PN532.h'=>'Adafruit PN532','ArduinoJson.h'=>$legacy?'ArduinoJson@6.18.0':'ArduinoJson',
+            'TFT_eSPI.h'=>$isEsp32S3?'TFT_eSPI@2.5.43':'TFT_eSPI',
             'XPT2046_Touchscreen.h'=>'XPT2046_Touchscreen','RF24.h'=>'RF24','RCSwitch.h'=>'rc-switch',
             'NimBLEDevice.h'=>'NimBLE-Arduino@1.4.2','IRremoteESP8266.h'=>'IRremoteESP8266','arduinoFFT.h'=>'arduinoFFT@1.6.2',
             'Adafruit_NeoPixel.h'=>'Adafruit NeoPixel',
@@ -65,11 +67,15 @@ YAML;
         $libraries=[]; foreach($map as $include=>$library) if(str_contains($source,$include)) $libraries[]=$library;
         $install=$libraries ? implode("\n",array_map(fn($lib)=>'          arduino-cli lib install '.escapeshellarg($lib),$libraries)) : '          echo "No registry libraries detected"';
         $hasZips=count(array_filter($paths,fn($p)=>str_starts_with(strtolower($p),'libraries/')&&str_ends_with(strtolower($p),'.zip')))>0;
-        if($hasZips) $install.="\n          find Libraries -type f -name '*.zip' -print0 | while IFS= read -r -d '' zip; do arduino-cli lib install --zip-path \"\$zip\"; done";
+        if($hasZips){
+            $zipFilter=$isEsp32S3?" ! -iname '*TFT*'":'';
+            $install.="\n          find Libraries -type f -name '*.zip'{$zipFilter} -print0 | while IFS= read -r -d '' zip; do arduino-cli lib install --zip-path \"\$zip\"; done";
+        }
+        $hasV2Setup=in_array('Libraries/User_Setup v2.h',$paths,true);
+        if($isEsp32S3&&$hasV2Setup) $install.="\n          cp \"Libraries/User_Setup v2.h\" \"\$HOME/Arduino/libraries/TFT_eSPI/User_Setup.h\"";
         // Some legacy projects bundle platform.txt for the 2.0.x ESP32 core and do not compile on 3.x.
         $core=$legacy?'esp32:esp32@2.0.10':'esp32:esp32';
         $platformPatch=$legacy?'          cp "Libraries/platform.txt" "$HOME/.arduino15/packages/esp32/hardware/esp32/2.0.10/platform.txt"':'';
-        $isEsp32S3=preg_match('/^\s*#\s*define\s+BOARD_ESP32_DIV_V2\b/m',$source)===1 || preg_match('/\bESP32[-_ ]?S3\b/i',$source)===1;
         $fqbn=$isEsp32S3?'esp32:esp32:esp32s3:PSRAM=enabled,PartitionScheme=min_spiffs,FlashMode=dio':'esp32:esp32:esp32';
         return <<<YAML
       - uses: actions/setup-python@v5
