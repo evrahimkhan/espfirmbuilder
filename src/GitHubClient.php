@@ -128,7 +128,7 @@ final class GitHubClient
         // GitHub registers a newly committed workflow asynchronously. During that
         // short window dispatch returns 404 or the misleading "no workflow_dispatch"
         // 422 even though the committed YAML contains the trigger.
-        for($attempt=0;$attempt<6;$attempt++){
+        for($attempt=0;$attempt<3;$attempt++){
             if($attempt>0){
                 try { $this->enableWorkflow($fullName,$workflow); }
                 catch(RuntimeException $ignored) {}
@@ -137,8 +137,17 @@ final class GitHubClient
             catch(RuntimeException $e){
                 $lastError=$e;
                 if(!in_array($e->getCode(),[404,422],true)) throw $e;
-                if($attempt<5) usleep(2000000);
+                if($attempt<2) usleep(2000000);
             }
+        }
+        // Some forks keep returning a stale workflow_dispatch capability even after
+        // the workflow is updated. Generated ESPForge workflows also listen for this
+        // repository event, which uses a separate and more reliable GitHub endpoint.
+        if($lastError?->getCode()===422){
+            $event=['event_type'=>'espforge_build'];
+            if($inputs) $event['client_payload']=$inputs;
+            $this->request('POST',"/repos/{$fullName}/dispatches",$event);
+            return;
         }
         throw $lastError??new RuntimeException('GitHub did not register the workflow in time.',502);
     }
