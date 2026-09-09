@@ -83,7 +83,9 @@ final class GitHubClient
             if ($e->getCode() !== 404) throw $e;
         }
 
-        $fork = $this->request('POST', "/repos/{$sourceFullName}/forks");
+        // Send an explicit JSON body. Some GitHub API gateways reject a bodyless
+        // custom POST before it reaches the repository-fork operation.
+        $fork = $this->request('POST', "/repos/{$sourceFullName}/forks", ['default_branch_only' => true]);
         $forkFullName = $fork['full_name'] ?? $forkFullName;
 
         // GitHub creates forks asynchronously. Keep this bounded for shared-hosting limits.
