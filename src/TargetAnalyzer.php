@@ -14,8 +14,16 @@ final class TargetAnalyzer
         foreach(array_slice($workflowPaths,0,30) as $path){
             $yaml=$github->file($fullName,$path,$branch)??'';
             foreach(preg_split('/\R/',$yaml) as $line){
-                if(!preg_match('/^\s*-\s*\{.*?name:\s*"([^"]+)".*?flag:\s*"([^"]+)".*?(?:fbqn|fqbn):\s*"([^"]+)"/',$line,$match)) continue;
-                $targets[]=['id'=>$match[2],'name'=>$match[1],'type'=>'workflow_matrix','fqbn'=>$match[3],'flag'=>$match[2],'workflow_path'=>$path];
+                if(preg_match('/^\s*-\s*\{.*?name:\s*"([^"]+)".*?flag:\s*"([^"]+)".*?(?:fbqn|fqbn):\s*"([^"]+)"/',$line,$match)){
+                    $targets[]=['id'=>$match[2],'name'=>$match[1],'type'=>'workflow_matrix','fqbn'=>$match[3],'flag'=>$match[2],'matrix_field'=>'flag','workflow_path'=>$path];
+                    continue;
+                }
+                // ESP-IDF repositories commonly pair each board with its chip and
+                // an authoritative sdkconfig file in an inline Actions matrix.
+                if(preg_match('/^\s*-\s*\{.*?name:\s*"([^"]+)".*?idf_target:\s*"([^"]+)".*?sdkconfig_file:\s*"([^"]+)"/',$line,$match)){
+                    $id='idf-'.substr(hash('sha256',$match[3]),0,16);
+                    $targets[]=['id'=>$id,'name'=>$match[1],'type'=>'workflow_matrix','idf_target'=>$match[2],'config_path'=>$match[3],'flag'=>$match[3],'matrix_field'=>'sdkconfig_file','workflow_path'=>$path];
+                }
             }
             if($targets) return $targets;
         }
@@ -47,12 +55,12 @@ final class TargetAnalyzer
         return null;
     }
 
-    public static function filterMatrix(string $yaml,string $flag,string $name): string
+    public static function filterMatrix(string $yaml,string $value,string $name,string $field='flag'): string
     {
-        $lines=[]; $found=false;
+        $lines=[]; $found=false; $key=preg_quote($field,'/');
         foreach(preg_split('/\R/',$yaml) as $line){
-            if(preg_match('/^\s*-\s*\{.*?flag:\s*"([^"]+)"/',$line,$match)){
-                if($match[1]!==$flag) continue;
+            if(preg_match('/^\s*-\s*\{.*?'.$key.':\s*"([^"]+)"/',$line,$match)){
+                if($match[1]!==$value) continue;
                 $found=true;
             }
             $lines[]=$line;

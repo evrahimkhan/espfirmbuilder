@@ -30,8 +30,8 @@ try {
  if($target['type']==='workflow_matrix'){
      $original=$github->file($repository['full_name'],$target['workflow_path'],$repository['default_branch']);
      if(!$original) throw new RuntimeException('The repository hardware workflow could not be read.',404);
-     $workflow=TargetAnalyzer::filterMatrix($original,$target['flag'],$target['name']);
-     $inputs=['create_release'=>'false'];
+     $workflow=TargetAnalyzer::filterMatrix($original,$target['flag'],$target['name'],$target['matrix_field']??'flag');
+     $inputs=str_contains($original,'create_release:')?['create_release'=>'false']:[];
  } else {
      $source=$analysis['framework']==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
      $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
