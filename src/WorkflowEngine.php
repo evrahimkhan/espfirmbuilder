@@ -66,9 +66,10 @@ YAML;
         return <<<YAML
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.11"
       - name: Install Arduino CLI
         run: |
+          python -m pip install --disable-pip-version-check pyserial
           curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
           echo "\$PWD/bin" >> "\$GITHUB_PATH"
       - name: Install ESP32 core
