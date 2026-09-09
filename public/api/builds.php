@@ -15,9 +15,9 @@ try {
  $github=new GitHubClient(github_token((int)$user['id']));
  // Re-analyze and synchronize the workflow before every dispatch. This upgrades
  // projects connected with an older ESPForge generator without manual deletion.
- $tree=$github->tree($repository['full_name'],$repository['default_branch']); $paths=array_column($tree['tree']??[],'path');
- $analysis=WorkflowEngine::analyze($paths); $source='';
- if($analysis['framework']==='arduino') foreach($paths as $path) if(str_ends_with(strtolower($path),'.ino')){ $source=$github->file($repository['full_name'],$path,$repository['default_branch'])??''; break; }
+ $tree=$github->tree($repository['full_name'],$repository['default_branch']); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');
+ $analysis=WorkflowEngine::analyze($paths);
+ $source=$analysis['framework']==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
  $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
  $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: refresh ESPForge firmware build');
  $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);

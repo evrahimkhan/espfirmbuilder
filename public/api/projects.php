@@ -27,11 +27,8 @@ try {
         }
     }
     $branch=$metadata['default_branch']??'main';
-    $tree=$github->tree($full,$branch); $paths=array_column($tree['tree']??[],'path'); $analysis=WorkflowEngine::analyze($paths);
-    $source='';
-    if($analysis['framework']==='arduino'){
-        foreach($paths as $path) if(str_ends_with(strtolower($path),'.ino')){ $source=$github->file($full,$path,$branch)??''; break; }
-    }
+    $tree=$github->tree($full,$branch); $entries=$tree['tree']??[]; $paths=array_column($entries,'path'); $analysis=WorkflowEngine::analyze($paths);
+    $source=$analysis['framework']==='arduino'?$github->sourceBundle($full,$branch,$entries):'';
     $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
     try {
         $github->putFile($full,'.github/workflows/espforge-build.yml',$branch,$workflow,'ci: add ESPForge firmware build');

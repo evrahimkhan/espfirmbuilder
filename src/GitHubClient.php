@@ -55,6 +55,19 @@ final class GitHubClient
         }
     }
 
+    public function sourceBundle(string $fullName, string $branch, array $tree, int $limit = 60): string
+    {
+        $bundle = ''; $count = 0;
+        foreach ($tree as $entry) {
+            $path = $entry['path'] ?? '';
+            if (($entry['type'] ?? '') !== 'blob' || !preg_match('/\.(?:ino|h|hpp|c|cpp)$/i', $path)) continue;
+            if (($entry['size'] ?? 0) > 250000 || $count++ >= $limit) continue;
+            $content = $this->file($fullName, $path, $branch);
+            if ($content !== null) $bundle .= "\n// ESPForge source: {$path}\n" . $content;
+        }
+        return $bundle;
+    }
+
     public function putFile(string $fullName, string $path, string $branch, string $content, string $message): array
     {
         $payload = ['message' => $message, 'content' => base64_encode($content), 'branch' => $branch];
