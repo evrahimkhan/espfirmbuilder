@@ -67,6 +67,34 @@ final class GitHubClient
         return $this->request('PUT', "/repos/{$fullName}/contents/{$path}", $payload);
     }
 
+    public function ensureFork(string $sourceFullName, string $repositoryName): array
+    {
+        $viewer = $this->request('GET', '/user');
+        $login = $viewer['login'] ?? null;
+        if (!$login) throw new RuntimeException('GitHub did not return the authenticated username.');
+        $forkFullName = $login . '/' . $repositoryName;
+
+        // Reuse a fork that the user already owns.
+        try {
+            $existing = $this->repository($forkFullName);
+            if (($existing['fork'] ?? false) && strcasecmp($existing['parent']['full_name'] ?? '', $sourceFullName) === 0) return $existing;
+            throw new RuntimeException("A repository named {$repositoryName} already exists in your account and is not a fork of {$sourceFullName}.", 409);
+        } catch (RuntimeException $e) {
+            if ($e->getCode() !== 404) throw $e;
+        }
+
+        $fork = $this->request('POST', "/repos/{$sourceFullName}/forks");
+        $forkFullName = $fork['full_name'] ?? $forkFullName;
+
+        // GitHub creates forks asynchronously. Keep this bounded for shared-hosting limits.
+        for ($attempt = 0; $attempt < 10; $attempt++) {
+            usleep(500000);
+            try { return $this->repository($forkFullName); }
+            catch (RuntimeException $e) { if ($e->getCode() !== 404) throw $e; }
+        }
+        throw new RuntimeException("Your fork {$forkFullName} was requested but GitHub is still preparing it. Wait a moment and submit the original URL again.", 503);
+    }
+
     public function dispatch(string $fullName, string $workflow, string $branch): void
     {
         $this->request('POST', "/repos/{$fullName}/actions/workflows/" . rawurlencode($workflow) . '/dispatches', ['ref' => $branch]);
