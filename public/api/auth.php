@@ -43,8 +43,14 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
     $payload = ['client_id'=>$config[$provider]['client_id'], 'client_secret'=>$config[$provider]['client_secret'], 'code'=>$_GET['code'], 'redirect_uri'=>$config[$provider]['redirect_uri']];
     if ($provider === 'google') $payload['grant_type'] = 'authorization_code';
     $ch=curl_init($tokenUrl); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>http_build_query($payload),CURLOPT_HTTPHEADER=>['Accept: application/json'],CURLOPT_TIMEOUT=>20]);
-    $tokenData=json_decode(curl_exec($ch) ?: '[]',true); curl_close($ch); $token=$tokenData['access_token']??null;
-    if(!$token) json_response(['error'=>'OAuth token exchange failed.'],502);
+    $tokenResponse=curl_exec($ch); $curlError=curl_error($ch); $tokenStatus=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); curl_close($ch);
+    if($tokenResponse===false) json_response(['error'=>'OAuth provider connection failed.','detail'=>$curlError?:'Outbound HTTPS request failed.'],502);
+    $tokenData=json_decode($tokenResponse,true)?:[]; $token=$tokenData['access_token']??null;
+    if(!$token){
+        $detail=$tokenData['error_description']??$tokenData['error']??('Provider returned HTTP '.$tokenStatus);
+        error_log('ESPForge OAuth token exchange failed for '.$provider.': '.$detail);
+        json_response(['error'=>'OAuth token exchange failed.','detail'=>$detail],502);
+    }
     $api=$provider==='github'?'https://api.github.com/user':'https://openidconnect.googleapis.com/v1/userinfo';
     $ch=curl_init($api); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Accept: application/json','User-Agent: ESPForge'],CURLOPT_TIMEOUT=>20]); $profile=json_decode(curl_exec($ch)?:'[]',true); curl_close($ch);
     $providerId=(string)($profile['id']??$profile['sub']??''); $email=$profile['email']??null;
