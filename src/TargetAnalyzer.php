@@ -192,7 +192,10 @@ YAML;
         $targets=[];
         foreach($found as $macro=>$configPaths){
             $chip=str_contains($macro,'ESP32_DIV_V2')||str_contains($macro,'ESP32_S3')||str_contains($macro,'ESP32S3')||str_contains($macro,'_S3')?'esp32s3':(str_contains($macro,'_S2')?'esp32s2':(str_contains($macro,'_C3')?'esp32c3':(str_contains($macro,'_C6')?'esp32c6':'esp32')));
-            $targets[]=['id'=>strtolower($macro),'name'=>self::label($macro),'type'=>'arduino_define','define'=>$macro,'config_paths'=>array_values(array_unique($configPaths)),'fqbn'=>'esp32:esp32:'.$chip,'source'=>'config'];
+            $fqbn=$chip==='esp32s3'
+                ?'esp32:esp32:esp32s3:PSRAM=enabled,PartitionScheme=min_spiffs,FlashMode=dio'
+                :'esp32:esp32:'.$chip;
+            $targets[]=['id'=>strtolower($macro),'name'=>self::label($macro),'type'=>'arduino_define','define'=>$macro,'config_paths'=>array_values(array_unique($configPaths)),'fqbn'=>$fqbn,'source'=>'config'];
         }
         return $targets;
     }
