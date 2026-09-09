@@ -10,6 +10,8 @@ A PHP/MySQL MVP for AI-assisted ESP32 firmware builds through GitHub Actions and
 - Real Web Serial flashing through `esptool-js`, including progress and board reset
 - GitHub OAuth callback, encrypted token storage, repository inspection, automatic forking of read-only repositories, and workflow deployment
 - PlatformIO, ESP-IDF, and Arduino project detection with framework-specific workflow generation
+- Deterministic hardware-target discovery with Gemini/OpenRouter fallback for non-standard repositories
+- Per-model workflow generation using PlatformIO environments, Arduino FQBN/defines, ESP-IDF targets, or existing matrices
 - Real GitHub Actions dispatch and build-run status reconciliation
 - Encrypted Google Gemini/OpenRouter credential settings
 - MySQL schema for users, repositories, builds, and flash profiles

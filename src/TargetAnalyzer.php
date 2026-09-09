@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 final class TargetAnalyzer
 {
-    public static function discover(GitHubClient $github,string $fullName,string $branch,array $paths): array
+    public static function discover(GitHubClient $github,string $fullName,string $branch,array $paths,?callable $aiFallback=null): array
     {
         $targets=[];
         if(in_array('platformio.ini',$paths,true)){
@@ -28,6 +28,10 @@ final class TargetAnalyzer
             if($targets) return $targets;
         }
 
+        if($aiFallback){
+            try { $aiTargets=$aiFallback(); if(is_array($aiTargets)&&$aiTargets) return $aiTargets; }
+            catch(Throwable $e){ error_log('ESPForge AI target fallback: '.$e->getMessage()); }
+        }
         $source=$github->sourceBundle($fullName,$branch,array_map(fn($path)=>['path'=>$path,'type'=>'blob','size'=>0],$paths),20);
         $s3=preg_match('/^\s*#\s*define\s+BOARD_ESP32_DIV_V2\b/m',$source)===1||preg_match('/\bESP32[-_ ]?S3\b/i',$source)===1;
         return [[

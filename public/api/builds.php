@@ -3,6 +3,7 @@ require __DIR__ . '/../../src/bootstrap.php';
 require __DIR__ . '/../../src/GitHubClient.php';
 require __DIR__ . '/../../src/WorkflowEngine.php';
 require __DIR__ . '/../../src/TargetAnalyzer.php';
+require __DIR__ . '/../../src/AITargetAnalyzer.php';
 $user=require_user();
 if($_SERVER['REQUEST_METHOD']==='GET'){
  $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
@@ -17,8 +18,10 @@ try {
  // Re-analyze and synchronize the workflow before every dispatch. This upgrades
  // projects connected with an older ESPForge generator without manual deletion.
  $tree=$github->tree($repository['full_name'],$repository['default_branch']); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');
- $analysis=WorkflowEngine::analyze($paths);
- $targets=TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths);
+ $analysis=WorkflowEngine::analyze($paths); $record=user_record((int)$user['id']);
+ $provider=(string)($record['ai_provider']??''); $key=decrypt_secret($record['ai_api_key']??null);
+ $fallback=$key&&in_array($provider,['google','openrouter'],true)?fn()=>(new AITargetAnalyzer($provider,$key))->discover($github,$repository['full_name'],$repository['default_branch'],$paths):null;
+ $targets=TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths,$fallback);
  $targetId=(string)($data['target_id']??'');
  if(count($targets)>1 && $targetId==='') json_response(['error'=>'Select a hardware model before building.','code'=>'target_required','targets'=>$targets],422);
  $target=TargetAnalyzer::select($targets,$targetId!==''?$targetId:(string)$targets[0]['id']);
@@ -33,6 +36,12 @@ try {
      $source=$analysis['framework']==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
      $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
      if($target['type']==='platformio') $workflow=str_replace('run: pio run','run: pio run -e '.escapeshellarg($target['environment']),$workflow);
+     if($target['type']==='arduino'&&!empty($target['fqbn'])){
+         $replacement='--fqbn "'.$target['fqbn'].'"';
+         if(!empty($target['build_flags'])) $replacement.=' --build-property build.extra_flags="'.$target['build_flags'].'"';
+         $workflow=preg_replace('/--fqbn "[^"]+"/',$replacement,$workflow,1)??$workflow;
+     }
+     if($target['type']==='esp-idf'&&!empty($target['idf_target'])) $workflow=preg_replace('/target:\s*esp32\b/','target: '.$target['idf_target'],$workflow,1)??$workflow;
  }
  $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name']);
  $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);
