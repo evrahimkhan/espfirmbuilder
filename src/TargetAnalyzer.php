@@ -88,6 +88,7 @@ final class TargetAnalyzer
               output.append(line)
           path.write_text("".join(output))
           PY
+
 YAML;
         }
         if(($selected['type']??'')!=='arduino_define') return '';
@@ -116,13 +117,14 @@ YAML;
                   if not match or match.group(2) not in names:
                       output.append(line); continue
                   prefix, name, suffix = match.groups()
-                  ending = "\n" if line.endswith("\n") else ""
+                  ending = chr(10) if line.endswith(chr(10)) else ""
                   if name == cfg["selected"]:
                       output.append(f"{prefix}#define {name}{suffix.rstrip()}{ending}")
                   else:
                       output.append(f"{prefix}// ESPForge disabled: #define {name}{suffix.rstrip()}{ending}")
               path.write_text("".join(output))
           PY
+
 YAML;
     }
 
@@ -189,7 +191,7 @@ YAML;
         }
         $targets=[];
         foreach($found as $macro=>$configPaths){
-            $chip=str_contains($macro,'ESP32_S3')||str_contains($macro,'ESP32S3')||str_contains($macro,'_S3')?'esp32s3':(str_contains($macro,'_S2')?'esp32s2':(str_contains($macro,'_C3')?'esp32c3':(str_contains($macro,'_C6')?'esp32c6':'esp32')));
+            $chip=str_contains($macro,'ESP32_DIV_V2')||str_contains($macro,'ESP32_S3')||str_contains($macro,'ESP32S3')||str_contains($macro,'_S3')?'esp32s3':(str_contains($macro,'_S2')?'esp32s2':(str_contains($macro,'_C3')?'esp32c3':(str_contains($macro,'_C6')?'esp32c6':'esp32')));
             $targets[]=['id'=>strtolower($macro),'name'=>self::label($macro),'type'=>'arduino_define','define'=>$macro,'config_paths'=>array_values(array_unique($configPaths)),'fqbn'=>'esp32:esp32:'.$chip,'source'=>'config'];
         }
         return $targets;
