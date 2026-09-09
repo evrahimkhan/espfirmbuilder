@@ -5,18 +5,17 @@ final class WorkflowEngine
 {
     public static function analyze(array $paths): array
     {
-        $lower = array_map('strtolower', $paths);
-        $has = fn(string $name): bool => in_array(strtolower($name), $lower, true);
-        if ($has('platformio.ini')) return ['framework' => 'platformio', 'board' => 'configured in platformio.ini', 'confidence' => 0.99];
-        if ($has('idf_component.yml') || $has('sdkconfig') || ($has('cmakelists.txt') && count(array_filter($lower, fn($p) => str_contains($p, 'main/'))) > 0)) return ['framework' => 'esp-idf', 'board' => 'ESP32', 'confidence' => 0.93];
-        if (count(array_filter($lower, fn($p) => str_ends_with($p, '.ino'))) > 0) return ['framework' => 'arduino', 'board' => 'esp32', 'confidence' => 0.92];
+        $lower=array_map('strtolower',$paths); $has=fn(string $name):bool=>in_array(strtolower($name),$lower,true);
+        if($has('platformio.ini')) return ['framework'=>'platformio','board'=>'configured in platformio.ini','confidence'=>0.99];
+        if($has('idf_component.yml')||$has('sdkconfig')||($has('cmakelists.txt')&&count(array_filter($lower,fn($p)=>str_contains($p,'main/')))>0)) return ['framework'=>'esp-idf','board'=>'ESP32','confidence'=>0.93];
+        if(count(array_filter($lower,fn($p)=>str_ends_with($p,'.ino')))>0) return ['framework'=>'arduino','board'=>'esp32','confidence'=>0.92];
         throw new RuntimeException('No supported PlatformIO, ESP-IDF, or Arduino project was detected.');
     }
 
-    public static function workflow(string $framework): string
+    public static function workflow(string $framework, array $paths=[], string $source=''): string
     {
-        $header = "name: ESPForge firmware build\n\non:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@v4\n";
-        if ($framework === 'platformio') return $header . <<<'YAML'
+        $header="name: ESPForge firmware build\n\non:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@v4\n";
+        if($framework==='platformio') return $header.<<<'YAML'
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
@@ -32,7 +31,7 @@ final class WorkflowEngine
           path: firmware-output/
           if-no-files-found: error
 YAML;
-        if ($framework === 'esp-idf') return $header . <<<'YAML'
+        if($framework==='esp-idf') return $header.<<<'YAML'
       - uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: latest
@@ -46,22 +45,43 @@ YAML;
           path: firmware-output/
           if-no-files-found: error
 YAML;
-        return $header . <<<'YAML'
+        return $header.self::arduinoSteps($paths,$source);
+    }
+
+    private static function arduinoSteps(array $paths,string $source): string
+    {
+        $map=[
+            'PCF8574.h'=>'PCF8574 library','Adafruit_PN532.h'=>'Adafruit PN532','ArduinoJson.h'=>'ArduinoJson',
+            'XPT2046_Touchscreen.h'=>'XPT2046_Touchscreen','RF24.h'=>'RF24','RCSwitch.h'=>'rc-switch',
+            'NimBLEDevice.h'=>'NimBLE-Arduino','IRremoteESP8266.h'=>'IRremoteESP8266','arduinoFFT.h'=>'arduinoFFT',
+            'Adafruit_NeoPixel.h'=>'Adafruit NeoPixel',
+        ];
+        $libraries=[]; foreach($map as $include=>$library) if(str_contains($source,$include)) $libraries[]=$library;
+        $install=$libraries ? implode("\n",array_map(fn($lib)=>'          arduino-cli lib install '.escapeshellarg($lib),$libraries)) : '          echo "No registry libraries detected"';
+        $hasZips=count(array_filter($paths,fn($p)=>str_starts_with(strtolower($p),'libraries/')&&str_ends_with(strtolower($p),'.zip')))>0;
+        if($hasZips) $install.="\n          find Libraries -type f -name '*.zip' -print0 | while IFS= read -r -d '' zip; do arduino-cli lib install --zip-path \"\$zip\"; done";
+        // Some legacy projects bundle platform.txt for the 2.0.x ESP32 core and do not compile on 3.x.
+        $legacy=count(array_filter($paths,fn($p)=>strtolower($p)==='libraries/platform.txt'))>0;
+        $core=$legacy?'esp32:esp32@2.0.10':'esp32:esp32';
+        return <<<YAML
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
       - name: Install Arduino CLI
         run: |
           curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
-          echo "$PWD/bin" >> "$GITHUB_PATH"
+          echo "\$PWD/bin" >> "\$GITHUB_PATH"
       - name: Install ESP32 core
         run: |
-          arduino-cli config init
-          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          arduino-cli core update-index
-          arduino-cli core install esp32:esp32
+          ./bin/arduino-cli config init
+          ./bin/arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          ./bin/arduino-cli core update-index
+          ./bin/arduino-cli core install {$core}
+      - name: Install detected libraries
+        run: |
+{$install}
       - name: Compile firmware
-        run: arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir firmware-output "$(dirname "$(find . -name '*.ino' -print -quit)")"
+        run: arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir firmware-output "\$(dirname "\$(find . -name '*.ino' -print -quit)")"
       - uses: actions/upload-artifact@v4
         with:
           name: espforge-firmware
