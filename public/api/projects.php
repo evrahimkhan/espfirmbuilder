@@ -20,7 +20,10 @@ try {
             $url=$metadata['html_url']??('https://github.com/'.$full);
         } catch(RuntimeException $e) {
             $status=$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502;
-            json_response(['error'=>'ESPForge could not create your fork: '.$e->getMessage()],$status);
+            $message=$e->getCode()===403
+                ? 'Your token cannot create forks. The configured client is probably a GitHub App. Replace it with credentials from Settings → Developer settings → OAuth Apps, revoke the existing ESPForge authorization, and reconnect.'
+                : 'ESPForge could not create your fork: '.$e->getMessage();
+            json_response(['error'=>$message],$status);
         }
     }
     $branch=$metadata['default_branch']??'main';

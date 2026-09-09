@@ -51,6 +51,12 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         error_log('ESPForge OAuth token exchange failed for '.$provider.': '.$detail);
         json_response(['error'=>'OAuth token exchange failed.','detail'=>$detail],502);
     }
+    if($provider==='github'){
+        $granted=array_filter(preg_split('/[\s,]+/',strtolower((string)($tokenData['scope']??''))));
+        if(!in_array('repo',$granted,true) || !in_array('workflow',$granted,true)){
+            json_response(['error'=>'This credential does not have OAuth repository and workflow scopes. Create an OAuth App—not a GitHub App—then reconnect it.','granted_scopes'=>array_values($granted)],403);
+        }
+    }
     $api=$provider==='github'?'https://api.github.com/user':'https://openidconnect.googleapis.com/v1/userinfo';
     $ch=curl_init($api); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Accept: application/json','User-Agent: ESPForge'],CURLOPT_TIMEOUT=>20]); $profile=json_decode(curl_exec($ch)?:'[]',true); curl_close($ch);
     $providerId=(string)($profile['id']??$profile['sub']??''); $email=$profile['email']??null;
