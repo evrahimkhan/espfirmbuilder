@@ -54,8 +54,19 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
     $api=$provider==='github'?'https://api.github.com/user':'https://openidconnect.googleapis.com/v1/userinfo';
     $ch=curl_init($api); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Accept: application/json','User-Agent: ESPForge'],CURLOPT_TIMEOUT=>20]); $profile=json_decode(curl_exec($ch)?:'[]',true); curl_close($ch);
     $providerId=(string)($profile['id']??$profile['sub']??''); $email=$profile['email']??null;
-    if($provider==='github' && !$email){ $ch=curl_init('https://api.github.com/user/emails'); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Accept: application/vnd.github+json','User-Agent: ESPForge']]); $emails=json_decode(curl_exec($ch)?:'[]',true); curl_close($ch); foreach($emails as $item) if(!empty($item['primary'])&& !empty($item['verified'])){$email=$item['email'];break;} }
-    if(!$providerId || !$email) json_response(['error'=>'The provider did not return a verified email.'],422);
+    if($provider==='github' && !$email){
+        $ch=curl_init('https://api.github.com/user/emails'); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Accept: application/vnd.github+json','User-Agent: ESPForge'],CURLOPT_TIMEOUT=>20]);
+        $emailResponse=curl_exec($ch); $emailStatus=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); curl_close($ch); $emails=json_decode($emailResponse?:'[]',true);
+        if(is_array($emails)){
+            foreach($emails as $item) if(is_array($item)&&!empty($item['primary'])&&!empty($item['verified'])&&!empty($item['email'])){$email=$item['email'];break;}
+            if(!$email) foreach($emails as $item) if(is_array($item)&&!empty($item['verified'])&&!empty($item['email'])){$email=$item['email'];break;}
+        }
+        // GitHub accounts may deliberately expose no email. The stable, provider-scoped
+        // noreply address lets OAuth login proceed without inventing personal information.
+        if(!$email && !empty($profile['login']) && $providerId) $email=$providerId.'+'.preg_replace('/[^A-Za-z0-9-]/','',$profile['login']).'@users.noreply.github.com';
+        if(!$email) error_log('ESPForge GitHub email lookup failed with HTTP '.$emailStatus);
+    }
+    if(!$providerId || !$email) json_response(['error'=>'The provider did not return a usable account identity.'],422);
     $idColumn=$provider.'_id'; $q=db()->prepare("SELECT * FROM users WHERE {$idColumn}=? OR email=? LIMIT 1"); $q->execute([$providerId,$email]); $record=$q->fetch();
     $name=$profile['name']??$profile['login']??explode('@',$email)[0];
     if($record){ $id=(int)$record['id']; $sql="UPDATE users SET {$idColumn}=?, name=?"; $values=[$providerId,$name]; if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); } $sql.=' WHERE id=?'; $values[]=$id; db()->prepare($sql)->execute($values); }
