@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 require __DIR__ . '/../../src/GitHubClient.php';
+require __DIR__ . '/../../src/WorkflowEngine.php';
 $user=require_user();
 if($_SERVER['REQUEST_METHOD']==='GET'){
  $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
@@ -10,5 +11,17 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
  json_response(['builds'=>$builds]);
 }
 verify_csrf(); $data=body(); $repo=(int)($data['repo_id']??0); $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$repo,$user['id']]); $repository=$q->fetch(); if(!$repository) json_response(['error'=>'Repository not found'],404);
-try { $github=new GitHubClient(github_token((int)$user['id'])); $github->dispatch($repository['full_name'],'espforge-build.yml',$repository['default_branch']); $q=db()->prepare("INSERT INTO builds(repo_id,status,logs) VALUES(?,'queued','Workflow dispatched to GitHub Actions.')"); $q->execute([$repo]); json_response(['id'=>(int)db()->lastInsertId(),'status'=>'queued'],202); }
+try {
+ $github=new GitHubClient(github_token((int)$user['id']));
+ // Re-analyze and synchronize the workflow before every dispatch. This upgrades
+ // projects connected with an older ESPForge generator without manual deletion.
+ $tree=$github->tree($repository['full_name'],$repository['default_branch']); $paths=array_column($tree['tree']??[],'path');
+ $analysis=WorkflowEngine::analyze($paths); $source='';
+ if($analysis['framework']==='arduino') foreach($paths as $path) if(str_ends_with(strtolower($path),'.ino')){ $source=$github->file($repository['full_name'],$path,$repository['default_branch'])??''; break; }
+ $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
+ $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: refresh ESPForge firmware build');
+ $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);
+ $github->dispatch($repository['full_name'],'espforge-build.yml',$repository['default_branch']);
+ $q=db()->prepare("INSERT INTO builds(repo_id,status,logs) VALUES(?,'queued','Workflow synchronized and dispatched to GitHub Actions.')"); $q->execute([$repo]); json_response(['id'=>(int)db()->lastInsertId(),'status'=>'queued'],202);
+}
 catch(RuntimeException $e){ json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }

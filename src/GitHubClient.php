@@ -60,6 +60,10 @@ final class GitHubClient
         $payload = ['message' => $message, 'content' => base64_encode($content), 'branch' => $branch];
         try {
             $current = $this->request('GET', "/repos/{$fullName}/contents/{$path}?ref=" . rawurlencode($branch));
+            if (isset($current['content'])) {
+                $existing = base64_decode(str_replace("\n", '', $current['content']), true);
+                if ($existing !== false && rtrim($existing) === rtrim($content)) return $current;
+            }
             if (!empty($current['sha'])) $payload['sha'] = $current['sha'];
         } catch (RuntimeException $e) {
             if ($e->getCode() !== 404) throw $e;
