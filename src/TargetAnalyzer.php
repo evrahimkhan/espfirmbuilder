@@ -5,13 +5,13 @@ final class TargetAnalyzer
 {
     public static function discover(GitHubClient $github,string $fullName,string $branch,array $paths,?callable $aiFallback=null): array
     {
-        $targets=self::discoverPlatformIOTargets($github,$fullName,$branch,$paths);
-        if($targets) return $targets;
+        $targets=[];
 
         // Several mature firmware projects publish their supported hardware as an
         // inline GitHub Actions matrix. Reuse it as the authoritative model list.
-        foreach(['.github/workflows/build_parallel.yml','.github/workflows/build.yml','.github/workflows/firmware.yml'] as $path){
-            if(!in_array($path,$paths,true)) continue;
+        $workflowPaths=array_values(array_filter($paths,fn($path)=>preg_match('~^\.github/workflows/.*\.ya?ml$~i',$path)));
+        usort($workflowPaths,fn($a,$b)=>(str_contains($b,'build_parallel')?1:0)<=>(str_contains($a,'build_parallel')?1:0));
+        foreach(array_slice($workflowPaths,0,30) as $path){
             $yaml=$github->file($fullName,$path,$branch)??'';
             foreach(preg_split('/\R/',$yaml) as $line){
                 if(!preg_match('/^\s*-\s*\{.*?name:\s*"([^"]+)".*?flag:\s*"([^"]+)".*?(?:fbqn|fqbn):\s*"([^"]+)"/',$line,$match)) continue;
@@ -19,6 +19,9 @@ final class TargetAnalyzer
             }
             if($targets) return $targets;
         }
+
+        $targets=self::discoverPlatformIOTargets($github,$fullName,$branch,$paths);
+        if($targets) return $targets;
 
         $idfTargets=self::discoverEspIdfTargets($github,$fullName,$branch,$paths);
         if(count($idfTargets)>1) return $idfTargets;
@@ -150,7 +153,11 @@ YAML;
             if($targets) return array_values($targets);
         }
 
-        $files=array_values(array_filter($paths,fn($path)=>preg_match('~(^|/)(?:platformio[^/]*|[^/]*(?:env|board|target)[^/]*)\.ini$~i',$path)));
+        $files=array_values(array_filter($paths,fn($path)=>
+            !preg_match('~(^|/)(?:lib|libs|libraries|vendor|examples?|test|tests)/~i',$path)
+            && substr_count($path,'/')<=3
+            && preg_match('~(^|/)(?:platformio[^/]*|[^/]*(?:env|board|target)[^/]*)\.ini$~i',$path)
+        ));
         foreach(array_slice($files,0,120) as $path){
             $content=$github->file($fullName,$path,$branch); if($content===null) continue;
             preg_match_all('/^\s*([;#]\s*)?\[env:([^\]]+)\]/mi',$content,$matches,PREG_SET_ORDER);
