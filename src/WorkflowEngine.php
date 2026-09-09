@@ -58,7 +58,7 @@ YAML;
         $map=[
             'PCF8574.h'=>'PCF8574 library','Adafruit_PN532.h'=>'Adafruit PN532','ArduinoJson.h'=>'ArduinoJson',
             'XPT2046_Touchscreen.h'=>'XPT2046_Touchscreen','RF24.h'=>'RF24','RCSwitch.h'=>'rc-switch',
-            'NimBLEDevice.h'=>'NimBLE-Arduino','IRremoteESP8266.h'=>'IRremoteESP8266','arduinoFFT.h'=>'arduinoFFT',
+            'NimBLEDevice.h'=>'NimBLE-Arduino@1.4.2','IRremoteESP8266.h'=>'IRremoteESP8266','arduinoFFT.h'=>'arduinoFFT@1.6.2',
             'Adafruit_NeoPixel.h'=>'Adafruit NeoPixel',
         ];
         $libraries=[]; foreach($map as $include=>$library) if(str_contains($source,$include)) $libraries[]=$library;
@@ -68,6 +68,7 @@ YAML;
         // Some legacy projects bundle platform.txt for the 2.0.x ESP32 core and do not compile on 3.x.
         $legacy=count(array_filter($paths,fn($p)=>strtolower($p)==='libraries/platform.txt'))>0;
         $core=$legacy?'esp32:esp32@2.0.10':'esp32:esp32';
+        $platformPatch=$legacy?'          cp "Libraries/platform.txt" "$HOME/.arduino15/packages/esp32/hardware/esp32/2.0.10/platform.txt"':'';
         return <<<YAML
       - uses: actions/setup-python@v5
         with:
@@ -84,6 +85,7 @@ YAML;
           ./bin/arduino-cli config set library.enable_unsafe_install true
           ./bin/arduino-cli core update-index
           ./bin/arduino-cli core install {$core}
+{$platformPatch}
       - name: Install detected libraries
         run: |
 {$install}
