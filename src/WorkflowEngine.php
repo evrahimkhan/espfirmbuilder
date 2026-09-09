@@ -24,7 +24,10 @@ final class WorkflowEngine
       - name: Build firmware
         run: pio run
       - name: Collect binaries
-        run: find .pio/build -type f -name "*.bin" -exec cp --parents {} firmware-output/ \;
+        run: |
+          mkdir -p firmware-output
+          find . -maxdepth 1 -type f -name "*.bin" -exec cp {} firmware-output/ \;
+          find .pio/build -type f -name "*.bin" -exec cp --parents {} firmware-output/ \;
       - uses: actions/upload-artifact@v4
         with:
           name: espforge-firmware
@@ -38,7 +41,9 @@ YAML;
           target: esp32
           path: "."
       - name: Collect binaries
-        run: find build -maxdepth 2 -type f -name "*.bin" -exec cp --parents {} firmware-output/ \;
+        run: |
+          mkdir -p firmware-output
+          find build -maxdepth 2 -type f -name "*.bin" -exec cp --parents {} firmware-output/ \;
       - uses: actions/upload-artifact@v4
         with:
           name: espforge-firmware
