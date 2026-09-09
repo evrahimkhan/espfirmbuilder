@@ -123,6 +123,23 @@ final class GitHubClient
     {
         $payload=['ref'=>$branch];
         if($inputs) $payload['inputs']=$inputs;
-        $this->request('POST', "/repos/{$fullName}/actions/workflows/" . rawurlencode($workflow) . '/dispatches', $payload);
+        $path="/repos/{$fullName}/actions/workflows/" . rawurlencode($workflow) . '/dispatches';
+        $lastError=null;
+        // GitHub registers a newly committed workflow asynchronously. During that
+        // short window dispatch returns 404 or the misleading "no workflow_dispatch"
+        // 422 even though the committed YAML contains the trigger.
+        for($attempt=0;$attempt<6;$attempt++){
+            if($attempt>0){
+                try { $this->enableWorkflow($fullName,$workflow); }
+                catch(RuntimeException $ignored) {}
+            }
+            try { $this->request('POST',$path,$payload); return; }
+            catch(RuntimeException $e){
+                $lastError=$e;
+                if(!in_array($e->getCode(),[404,422],true)) throw $e;
+                if($attempt<5) usleep(2000000);
+            }
+        }
+        throw $lastError??new RuntimeException('GitHub did not register the workflow in time.',502);
     }
 }

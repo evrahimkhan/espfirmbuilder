@@ -51,6 +51,10 @@ try {
  $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name']);
  $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);
  $workflowFile='espforge-build.yml'; $buildMessage='Building selected model: '.$target['name'];
+ // Workflows are disabled by default on many newly created forks.
+ // Explicitly enable the generated workflow before dispatching it.
+ try { $github->enableWorkflow($repository['full_name'],$workflowFile); }
+ catch(RuntimeException $e){ if(!in_array($e->getCode(),[404,422],true)) throw $e; }
  $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs);
  $q=db()->prepare("INSERT INTO builds(repo_id,status,logs) VALUES(?,'queued',?)"); $q->execute([$repo,$buildMessage]); json_response(['id'=>(int)db()->lastInsertId(),'status'=>'queued','workflow'=>$workflowFile],202);
 }
