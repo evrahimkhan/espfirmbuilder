@@ -75,6 +75,7 @@ YAML;
         run: |
           ./bin/arduino-cli config init
           ./bin/arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          ./bin/arduino-cli config set library.enable_unsafe_install true
           ./bin/arduino-cli core update-index
           ./bin/arduino-cli core install {$core}
       - name: Install detected libraries
