@@ -73,10 +73,33 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         if(!$email) error_log('ESPForge GitHub email lookup failed with HTTP '.$emailStatus);
     }
     if(!$providerId || !$email) json_response(['error'=>'The provider did not return a usable account identity.'],422);
-    $idColumn=$provider.'_id'; $q=db()->prepare("SELECT * FROM users WHERE {$idColumn}=? OR email=? LIMIT 1"); $q->execute([$providerId,$email]); $record=$q->fetch();
+    $idColumn=$provider.'_id';
+    $q=db()->prepare("SELECT * FROM users WHERE {$idColumn}=? LIMIT 1"); $q->execute([$providerId]); $providerRecord=$q->fetch();
+    $q=db()->prepare('SELECT * FROM users WHERE email=? LIMIT 1'); $q->execute([$email]); $emailRecord=$q->fetch();
     $name=$profile['name']??$profile['login']??explode('@',$email)[0];
-    if($record){ $id=(int)$record['id']; $sql="UPDATE users SET {$idColumn}=?, name=?"; $values=[$providerId,$name]; if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); } $sql.=' WHERE id=?'; $values[]=$id; db()->prepare($sql)->execute($values); }
-    else { $githubToken=$provider==='github'?encrypt_secret($token):null; $q=db()->prepare("INSERT INTO users(email,name,{$idColumn},github_token) VALUES(?,?,?,?)"); $q->execute([$email,$name,$providerId,$githubToken]); $id=(int)db()->lastInsertId(); }
-    unset($_SESSION['oauth_state'],$_SESSION['oauth_provider']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$email]; header('Location: ../dashboard.html'); exit;
+    try {
+        if($providerRecord){
+            // Always preserve the existing provider identity. An email/password account may
+            // already own the newly disclosed email, so do not move it implicitly.
+            $id=(int)$providerRecord['id'];
+            $sessionEmail=(!$emailRecord || (int)$emailRecord['id']===$id)?$email:$providerRecord['email'];
+            $sql="UPDATE users SET {$idColumn}=?, name=?, email=?"; $values=[$providerId,$name,$sessionEmail];
+            if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); }
+            $sql.=' WHERE id=?'; $values[]=$id; db()->prepare($sql)->execute($values);
+        } elseif($emailRecord){
+            $id=(int)$emailRecord['id']; $sessionEmail=$emailRecord['email'];
+            $sql="UPDATE users SET {$idColumn}=?, name=?"; $values=[$providerId,$name];
+            if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); }
+            $sql.=' WHERE id=?'; $values[]=$id; db()->prepare($sql)->execute($values);
+        } else {
+            $githubToken=$provider==='github'?encrypt_secret($token):null;
+            $q=db()->prepare("INSERT INTO users(email,name,{$idColumn},github_token) VALUES(?,?,?,?)");
+            $q->execute([$email,$name,$providerId,$githubToken]); $id=(int)db()->lastInsertId(); $sessionEmail=$email;
+        }
+    } catch(PDOException $e) {
+        error_log('ESPForge OAuth account link failed: '.$e->getMessage());
+        json_response(['error'=>'This provider identity is already linked to another account. Sign out and use the originally linked account.'],409);
+    }
+    unset($_SESSION['oauth_state'],$_SESSION['oauth_provider']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; header('Location: ../dashboard.html'); exit;
 }
 json_response(['error' => 'Unknown action'], 404);

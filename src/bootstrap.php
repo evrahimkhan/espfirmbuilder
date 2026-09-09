@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 $config = require __DIR__ . '/../config/config.php';
+$isProduction = ($config['app']['env'] ?? 'production') === 'production';
+ini_set('display_errors', $isProduction ? '0' : '1');
+ini_set('log_errors', '1');
 ini_set('session.use_strict_mode', '1');
 ini_set('session.cookie_httponly', '1');
 ini_set('session.cookie_samesite', 'Lax');
