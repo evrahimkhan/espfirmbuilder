@@ -5,16 +5,8 @@ final class TargetAnalyzer
 {
     public static function discover(GitHubClient $github,string $fullName,string $branch,array $paths,?callable $aiFallback=null): array
     {
-        $targets=[];
-        if(in_array('platformio.ini',$paths,true)){
-            $ini=$github->file($fullName,'platformio.ini',$branch)??'';
-            preg_match_all('/^\s*\[env:([^\]]+)\]/mi',$ini,$matches);
-            foreach($matches[1]??[] as $environment){
-                $environment=trim($environment); if(strtolower($environment)==='native') continue;
-                $targets[]=['id'=>$environment,'name'=>self::label($environment),'type'=>'platformio','environment'=>$environment];
-            }
-            if($targets) return $targets;
-        }
+        $targets=self::discoverPlatformIOTargets($github,$fullName,$branch,$paths);
+        if($targets) return $targets;
 
         // Several mature firmware projects publish their supported hardware as an
         // inline GitHub Actions matrix. Reuse it as the authoritative model list.
@@ -27,6 +19,9 @@ final class TargetAnalyzer
             }
             if($targets) return $targets;
         }
+
+        $idfTargets=self::discoverEspIdfTargets($github,$fullName,$branch,$paths);
+        if(count($idfTargets)>1) return $idfTargets;
 
         $defineTargets=self::discoverBoardDefines($github,$fullName,$branch,$paths);
         if(count($defineTargets)>1) return $defineTargets;
@@ -66,6 +61,35 @@ final class TargetAnalyzer
 
     public static function configurationStep(array $selected,array $targets): string
     {
+        if(($selected['type']??'')==='platformio_disabled'){
+            $path=base64_encode((string)$selected['config_path']); $environment=base64_encode((string)$selected['environment']);
+            return <<<YAML
+      - name: Enable selected PlatformIO environment
+        env:
+          ESPFORGE_INI_PATH: "{$path}"
+          ESPFORGE_PIO_ENV: "{$environment}"
+        run: |
+          python - <<'PY'
+          import base64, os, pathlib, re
+          path = pathlib.Path(base64.b64decode(os.environ["ESPFORGE_INI_PATH"]).decode())
+          env = base64.b64decode(os.environ["ESPFORGE_PIO_ENV"]).decode()
+          lines = path.read_text(errors="ignore").splitlines(keepends=True)
+          output, inside = [], False
+          for line in lines:
+              header = re.match(r"^(\s*)[;#]\s*\[env:([^]]+)\](.*)$", line, re.I)
+              any_header = re.match(r"^\s*(?:[;#]\s*)?\[.+\]", line)
+              if header:
+                  inside = header.group(2).strip() == env
+                  line = f"{header.group(1)}[env:{header.group(2)}]{header.group(3)}"
+              elif any_header:
+                  inside = False
+              elif inside:
+                  line = re.sub(r"^(\s*)[;#]\s?", r"\1", line)
+              output.append(line)
+          path.write_text("".join(output))
+          PY
+YAML;
+        }
         if(($selected['type']??'')!=='arduino_define') return '';
         $macro=(string)$selected['define']; $paths=[]; $macros=[];
         foreach($targets as $target) if(($target['type']??'')==='arduino_define'){
@@ -100,6 +124,36 @@ final class TargetAnalyzer
               path.write_text("".join(output))
           PY
 YAML;
+    }
+
+    private static function discoverPlatformIOTargets(GitHubClient $github,string $fullName,string $branch,array $paths): array
+    {
+        $files=array_values(array_filter($paths,fn($path)=>preg_match('~(^|/)(?:platformio[^/]*|[^/]*(?:env|board|target)[^/]*)\.ini$~i',$path)));
+        $targets=[];
+        foreach(array_slice($files,0,40) as $path){
+            $content=$github->file($fullName,$path,$branch); if($content===null) continue;
+            preg_match_all('/^\s*([;#]\s*)?\[env:([^\]]+)\]/mi',$content,$matches,PREG_SET_ORDER);
+            foreach($matches as $match){
+                $environment=trim($match[2]); if(strtolower($environment)==='native') continue;
+                $disabled=trim((string)($match[1]??''))!=='';
+                $targets[$environment]=['id'=>$environment,'name'=>self::label($environment),'type'=>$disabled?'platformio_disabled':'platformio','environment'=>$environment,'config_path'=>$path,'disabled'=>$disabled,'source'=>'platformio'];
+            }
+        }
+        return array_values($targets);
+    }
+
+    private static function discoverEspIdfTargets(GitHubClient $github,string $fullName,string $branch,array $paths): array
+    {
+        $chips=[]; $valid=['esp32','esp32s2','esp32s3','esp32c3','esp32c5','esp32c6'];
+        foreach($paths as $path){
+            if(!preg_match('~(^|/)(sdkconfig[^/]*|.*(?:target|board).*\.(?:cmake|conf|txt|defaults))$~i',$path)) continue;
+            $normalized=strtolower(preg_replace('/[^a-zA-Z0-9]/','',$path));
+            foreach($valid as $chip) if(str_contains($normalized,$chip)) $chips[$chip][]=$path;
+            $content=$github->file($fullName,$path,$branch)??'';
+            if(preg_match_all('/CONFIG_IDF_TARGET(?:_|=")?(ESP32(?:S2|S3|C3|C5|C6)?)/i',$content,$matches)) foreach($matches[1] as $chip) if(in_array(strtolower($chip),$valid,true)) $chips[strtolower($chip)][]=$path;
+        }
+        $targets=[]; foreach($chips as $chip=>$configPaths) $targets[]=['id'=>$chip,'name'=>$chip==='esp32'?'ESP32':strtoupper(substr($chip,0,5).'-'.substr($chip,5)),'type'=>'esp-idf','idf_target'=>$chip,'config_paths'=>array_values(array_unique($configPaths)),'source'=>'esp-idf'];
+        return $targets;
     }
 
     private static function discoverBoardDefines(GitHubClient $github,string $fullName,string $branch,array $paths): array

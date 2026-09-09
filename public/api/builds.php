@@ -35,15 +35,16 @@ try {
  } else {
      $source=$analysis['framework']==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
      $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
-     if($target['type']==='platformio') $workflow=str_replace('run: pio run','run: pio run -e '.escapeshellarg($target['environment']),$workflow);
+     if(in_array($target['type'],['platformio','platformio_disabled'],true)) $workflow=str_replace('run: pio run','run: pio run -e '.escapeshellarg($target['environment']),$workflow);
      if(in_array($target['type'],['arduino','arduino_define'],true)&&!empty($target['fqbn'])){
          $replacement='--fqbn "'.$target['fqbn'].'"';
          if(!empty($target['build_flags'])) $replacement.=' --build-property build.extra_flags="'.$target['build_flags'].'"';
          $workflow=preg_replace('/--fqbn "[^"]+"/',$replacement,$workflow,1)??$workflow;
      }
-     if($target['type']==='arduino_define'){
-         $step=TargetAnalyzer::configurationStep($target,$targets);
-         $workflow=str_replace('      - name: Compile firmware',$step.'      - name: Compile firmware',$workflow);
+     $step=TargetAnalyzer::configurationStep($target,$targets);
+     if($step!==''){
+         $marker=str_starts_with($target['type'],'platformio')?'      - name: Build firmware':'      - name: Compile firmware';
+         $workflow=str_replace($marker,$step.$marker,$workflow);
      }
      if($target['type']==='esp-idf'&&!empty($target['idf_target'])) $workflow=preg_replace('/target:\s*esp32\b/','target: '.$target['idf_target'],$workflow,1)??$workflow;
  }
