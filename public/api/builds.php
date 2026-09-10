@@ -11,7 +11,7 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
   if(!$build||empty($build['github_run_id'])) json_response(['error'=>'Build run details are not available.'],404);
   try{$client=new GitHubClient(github_token((int)$user['id']));$jobs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/jobs?per_page=100');json_response(['jobs'=>array_map(fn($job)=>['name'=>$job['name']??'Build','status'=>$job['status']??'queued','conclusion'=>$job['conclusion']??null,'steps'=>array_map(fn($step)=>['name'=>$step['name']??'Step','status'=>$step['status']??'queued','conclusion'=>$step['conclusion']??null],$job['steps']??[])],$jobs['jobs']??[])]);}catch(RuntimeException $e){json_response(['error'=>$e->getMessage()],502);}
  }
- $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
+ $q=db()->prepare('SELECT b.*,UNIX_TIMESTAMP(b.created_at) created_epoch,UNIX_TIMESTAMP(b.completed_at) completed_epoch,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
  $builds=$q->fetchAll();
  if(($_GET['refresh']??'')==='1') try {
   $client=new GitHubClient(github_token((int)$user['id']));
@@ -21,7 +21,7 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
     foreach($runs['workflow_runs']??[] as $run){
      if(strtotime($run['created_at'])>=strtotime($build['created_at'])-10){
       $build['github_run_id']=$run['id']; $build['status']=$run['status']; $build['conclusion']=$run['conclusion']; $build['artifact_url']=$run['html_url'];
-      $completedAt=$run['status']==='completed'?date('Y-m-d H:i:s'):null; $build['completed_at']=$completedAt;
+      $completedAt=$run['status']==='completed'?date('Y-m-d H:i:s'):null; $build['completed_at']=$completedAt; $build['completed_epoch']=$completedAt?time():null;
       $q=db()->prepare('UPDATE builds SET github_run_id=?,status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?');
       $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$completedAt,$build['id']]); break;
      }
