@@ -81,4 +81,4 @@ try {
     $q=db()->prepare('INSERT INTO repositories(user_id,repo_url,full_name,default_branch,framework,workflow_config,status) VALUES(?,?,?,?,?,?,?)');
     $q->execute([$user['id'],$url,$full,$branch,$analysis['framework'],$workflow,'workflow_ready']);
     json_response(['id'=>(int)db()->lastInsertId(),'full_name'=>$full,'forked_from'=>$forkedFrom,'analysis'=>$analysis],201);
-} catch(RuntimeException $e) { json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }
+} catch(Throwable $e) { json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }

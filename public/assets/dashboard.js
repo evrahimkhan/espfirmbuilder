@@ -5,7 +5,7 @@ function tab(name,remember=true){if(!tabNames.includes(name))name='overview';$$(
 $$('[data-tab]').forEach(b=>b.onclick=()=>tab(b.dataset.tab)); $('#new-project').onclick=()=>tab('repos');
 const requestedTab=location.hash.slice(1)||localStorage.getItem('espforge-active-tab')||'overview';tab(requestedTab);window.addEventListener('hashchange',()=>tab(location.hash.slice(1),false));
 $('#logout-button').onclick=async()=>{const button=$('#logout-button');button.disabled=true;try{await api('api/auth.php?action=logout',{method:'POST',body:'{}'});location.href='index.html'}catch(error){button.disabled=false;alert(error.message)}};
-async function api(url,opt={}){opt.headers={...(opt.headers||{}),'Content-Type':'application/json','X-CSRF-Token':csrf};const r=await fetch(url,opt),d=await r.json();if(r.status===401){location.href='index.html';throw Error('Please sign in')}if(!r.ok)throw Error(d.error||'Request failed');return d}
+async function api(url,opt={}){opt.headers={...(opt.headers||{}),'Content-Type':'application/json','X-CSRF-Token':csrf};const r=await fetch(url,opt),raw=await r.text();let d;try{d=raw?JSON.parse(raw):{}}catch(_){const message=raw.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();throw Error(message||`Server returned an invalid response (HTTP ${r.status}).`)}if(r.status===401){location.href='index.html';throw Error('Please sign in')}if(!r.ok)throw Error(d.error||'Request failed');return d}
 function escapeHtml(s){const e=document.createElement('div');e.textContent=s??'';return e.innerHTML}
 async function load(){
  const session=await api('api/auth.php?action=session');csrf=session.csrf;if(!session.user){location.href='index.html';return}
