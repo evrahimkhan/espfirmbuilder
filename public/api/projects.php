@@ -26,7 +26,7 @@ if(($data['action']??'')==='sync_all'){
 }
 if(in_array($data['action']??'',['remove','delete','sync'],true)){
     $action=(string)$data['action']; $id=(int)($data['repo_id']??0);
-    $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']); $repository=$q->fetch();
+    $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']]); $repository=$q->fetch();
     if(!$repository) json_response(['error'=>'Repository not found.'],404);
     if($action==='remove'){
         $q=db()->prepare('DELETE FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']]);
