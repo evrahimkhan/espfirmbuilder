@@ -7,7 +7,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $q=db()->prepare('SELECT r.*, (SELECT status FROM builds b WHERE b.repo_id=r.id ORDER BY id DESC LIMIT 1) build_status FROM repositories r WHERE user_id=? ORDER BY id DESC');
     $q->execute([$user['id']]); json_response(['projects'=>$q->fetchAll()]);
 }
-verify_csrf(); $data=body(); $url=trim($data['repo_url']??'');
+verify_csrf(); $data=body();
+if(in_array($data['action']??'',['remove','delete','sync'],true)){
+    $action=(string)$data['action']; $id=(int)($data['repo_id']??0);
+    $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']); $repository=$q->fetch();
+    if(!$repository) json_response(['error'=>'Repository not found.'],404);
+    if($action==='remove'){
+        $q=db()->prepare('DELETE FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']]);
+        json_response(['ok'=>true,'message'=>'Repository removed from ESPForge.']);
+    }
+    try {
+        $github=new GitHubClient(github_token((int)$user['id'])); $metadata=$github->repository($repository['full_name']);
+        if(empty($metadata['fork'])) json_response(['error'=>'This repository is not a fork, so ESPForge will not modify or delete it.'],422);
+        if($action==='delete'){
+            $github->request('DELETE','/repos/'.$repository['full_name']);
+            $q=db()->prepare('DELETE FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']]);
+            json_response(['ok'=>true,'message'=>'GitHub fork deleted and repository removed from ESPForge.']);
+        }
+        $result=$github->request('POST','/repos/'.$repository['full_name'].'/merge-upstream',['branch'=>$repository['default_branch']]);
+        json_response(['ok'=>true,'message'=>$result['message']??'Fork synchronized with its upstream repository.']);
+    } catch(RuntimeException $e){
+        $message=$action==='delete'&&$e->getCode()===403
+            ?'GitHub denied repository deletion. Reconnect GitHub from Settings to grant the delete_repo permission, then try again.'
+            :$e->getMessage();
+        json_response(['error'=>$message],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502);
+    }
+}
+$url=trim($data['repo_url']??'');
 if(!preg_match('~^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$~',$url,$match)) json_response(['error'=>'Enter a valid GitHub repository URL.'],422);
 $full=$match[1].'/'.$match[2];
 try {

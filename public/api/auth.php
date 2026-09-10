@@ -29,7 +29,7 @@ if (in_array($action, ['github', 'google'], true)) {
     if (empty($config[$provider]['client_id'])) json_response(['error' => ucfirst($provider) . ' OAuth is not configured.'], 503);
     $_SESSION['oauth_state'] = bin2hex(random_bytes(20)); $_SESSION['oauth_provider'] = $provider;
     $base = $provider === 'github' ? 'https://github.com/login/oauth/authorize' : 'https://accounts.google.com/o/oauth2/v2/auth';
-    $scope = $provider === 'github' ? 'read:user user:email repo workflow' : 'openid email profile';
+    $scope = $provider === 'github' ? 'read:user user:email repo workflow delete_repo' : 'openid email profile';
     $params = ['client_id'=>$config[$provider]['client_id'], 'redirect_uri'=>$config[$provider]['redirect_uri'], 'scope'=>$scope, 'state'=>$_SESSION['oauth_state'], 'response_type'=>'code'];
     if ($provider === 'google') $params['access_type'] = 'online';
     header('Location: ' . $base . '?' . http_build_query($params)); exit;
