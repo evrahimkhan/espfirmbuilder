@@ -1,7 +1,9 @@
 let csrf='',repos=[],loader=null,transport=null;
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
-function tab(name){$$('.tab').forEach(x=>x.classList.toggle('active',x.id===name));$$('aside nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));$('#title').textContent=({overview:'Workspace overview',repos:'Repositories',builds:'Live Builds',flash:'Web Flasher',settings:'Settings'})[name]||'ESPForge'}
+const tabNames=['overview','repos','builds','flash','settings'];
+function tab(name,remember=true){if(!tabNames.includes(name))name='overview';$$('.tab').forEach(x=>x.classList.toggle('active',x.id===name));$$('aside nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));$('#title').textContent=({overview:'Workspace overview',repos:'Repositories',builds:'Live Builds',flash:'Web Flasher',settings:'Settings'})[name]||'ESPForge';if(remember){localStorage.setItem('espforge-active-tab',name);history.replaceState(null,'','#'+name)}}
 $$('[data-tab]').forEach(b=>b.onclick=()=>tab(b.dataset.tab)); $('#new-project').onclick=()=>tab('repos');
+const requestedTab=location.hash.slice(1)||localStorage.getItem('espforge-active-tab')||'overview';tab(requestedTab);window.addEventListener('hashchange',()=>tab(location.hash.slice(1),false));
 $('#logout-button').onclick=async()=>{const button=$('#logout-button');button.disabled=true;try{await api('api/auth.php?action=logout',{method:'POST',body:'{}'});location.href='index.html'}catch(error){button.disabled=false;alert(error.message)}};
 async function api(url,opt={}){opt.headers={...(opt.headers||{}),'Content-Type':'application/json','X-CSRF-Token':csrf};const r=await fetch(url,opt),d=await r.json();if(r.status===401){location.href='index.html';throw Error('Please sign in')}if(!r.ok)throw Error(d.error||'Request failed');return d}
 function escapeHtml(s){const e=document.createElement('div');e.textContent=s??'';return e.innerHTML}
