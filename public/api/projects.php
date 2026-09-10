@@ -22,7 +22,7 @@ if(($data['action']??'')==='sync_all'){
             if(empty($metadata['fork'])){ $skipped++; continue; }
             $result=$github->request('POST','/repos/'.$repository['full_name'].'/merge-upstream',['branch'=>$repository['default_branch']]);
             $message=strtolower((string)($result['message']??''));
-            if(str_contains($message,'already up to date')) $unchanged++; else $synced++;
+            if(str_contains($message,'already up to date')||str_contains($message,'not behind')) $unchanged++; else $synced++;
         } catch(RuntimeException $e){ $errors[]=$repository['full_name'].': '.$e->getMessage(); }
     }
     json_response(['ok'=>true,'synced'=>$synced,'unchanged'=>$unchanged,'skipped'=>$skipped,'errors'=>$errors,'message'=>"Sync complete: {$synced} updated, {$unchanged} already current, {$skipped} non-forks skipped, ".count($errors).' failed.']);
@@ -44,7 +44,10 @@ if(in_array($data['action']??'',['remove','delete','sync'],true)){
             json_response(['ok'=>true,'message'=>'GitHub fork deleted and repository removed from ESPForge.']);
         }
         $result=$github->request('POST','/repos/'.$repository['full_name'].'/merge-upstream',['branch'=>$repository['default_branch']]);
-        json_response(['ok'=>true,'message'=>$result['message']??'Fork synchronized with its upstream repository.']);
+        $message=(string)($result['message']??''); $normalized=strtolower($message);
+        if(str_contains($normalized,'already up to date')||str_contains($normalized,'not behind')) $message='Already up to date.';
+        elseif($message==='') $message='Repository synchronized with upstream.';
+        json_response(['ok'=>true,'message'=>$message]);
     } catch(RuntimeException $e){
         $message=$action==='delete'&&$e->getCode()===403
             ?'GitHub denied repository deletion. Reconnect GitHub from Settings to grant the delete_repo permission, then try again.'
