@@ -12,7 +12,7 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
   $client=new GitHubClient(github_token((int)$user['id']));
   foreach($builds as &$build){
    if(in_array($build['status'],['queued','in_progress'],true)){
-    $runs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs?per_page=20');
+    $runs=$client->request('GET','/repos/'.$build['full_name'].'/actions/workflows/espforge-build.yml/runs?per_page=20');
     foreach($runs['workflow_runs']??[] as $run){
      if(strtotime($run['created_at'])>=strtotime($build['created_at'])-10){
       $build['github_run_id']=$run['id']; $build['status']=$run['status']; $build['conclusion']=$run['conclusion']; $build['artifact_url']=$run['html_url'];
@@ -73,7 +73,7 @@ try {
      }
      if($target['type']==='esp-idf'&&!empty($target['idf_target'])) $workflow=preg_replace('/target:\s*esp32\b/','target: '.$target['idf_target'],$workflow,1)??$workflow;
  }
- $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name']);
+ $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name'].' [skip ci]');
  $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);
  $workflowFile='espforge-build.yml'; $buildMessage='Building selected model: '.$target['name'];
  // Workflows are disabled by default on many newly created forks.

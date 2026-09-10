@@ -82,7 +82,7 @@ try {
     $source=$analysis['framework']==='arduino'?$github->sourceBundle($full,$branch,$entries):'';
     $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
     try {
-        $github->putFile($full,'.github/workflows/espforge-build.yml',$branch,$workflow,'ci: add ESPForge firmware build');
+        $github->putFile($full,'.github/workflows/espforge-build.yml',$branch,$workflow,'ci: add ESPForge firmware build [skip ci]');
     } catch(RuntimeException $e) {
         if($e->getCode()===403) json_response(['error'=>'GitHub denied workflow creation. Use a repository you can write to, then reconnect GitHub to grant the repo and workflow permissions.'],403);
         throw $e;
