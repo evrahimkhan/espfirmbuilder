@@ -8,6 +8,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $q->execute([$user['id']]); json_response(['projects'=>$q->fetchAll()]);
 }
 verify_csrf(); $data=body();
+if(($data['action']??'')==='sync_all'){
+    $q=db()->prepare('SELECT * FROM repositories WHERE user_id=? ORDER BY id'); $q->execute([$user['id']]); $repositories=$q->fetchAll();
+    $synced=0; $unchanged=0; $skipped=0; $errors=[];
+    try { $github=new GitHubClient(github_token((int)$user['id'])); }
+    catch(RuntimeException $e){ json_response(['error'=>$e->getMessage()],502); }
+    foreach($repositories as $repository){
+        try {
+            $metadata=$github->repository($repository['full_name']);
+            if(empty($metadata['fork'])){ $skipped++; continue; }
+            $result=$github->request('POST','/repos/'.$repository['full_name'].'/merge-upstream',['branch'=>$repository['default_branch']]);
+            $message=strtolower((string)($result['message']??''));
+            if(str_contains($message,'already up to date')) $unchanged++; else $synced++;
+        } catch(RuntimeException $e){ $errors[]=$repository['full_name'].': '.$e->getMessage(); }
+    }
+    json_response(['ok'=>true,'synced'=>$synced,'unchanged'=>$unchanged,'skipped'=>$skipped,'errors'=>$errors,'message'=>"Sync complete: {$synced} updated, {$unchanged} already current, {$skipped} non-forks skipped, ".count($errors).' failed.']);
+}
 if(in_array($data['action']??'',['remove','delete','sync'],true)){
     $action=(string)$data['action']; $id=(int)($data['repo_id']??0);
     $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']); $repository=$q->fetch();
