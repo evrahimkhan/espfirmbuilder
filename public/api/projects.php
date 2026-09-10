@@ -5,12 +5,15 @@ require __DIR__ . '/../../src/WorkflowEngine.php';
 $user = require_user();
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $q=db()->prepare('SELECT r.*, (SELECT status FROM builds b WHERE b.repo_id=r.id ORDER BY id DESC LIMIT 1) build_status FROM repositories r WHERE user_id=? ORDER BY id DESC');
-    $q->execute([$user['id']]); json_response(['projects'=>$q->fetchAll()]);
+    $q->execute([$user['id']]); $projects=[];
+    foreach($q->fetchAll() as $project){ $key=strtolower((string)$project['full_name']); if(!isset($projects[$key])) $projects[$key]=$project; }
+    json_response(['projects'=>array_values($projects)]);
 }
 verify_csrf(); $data=body();
 if(($data['action']??'')==='sync_all'){
-    $q=db()->prepare('SELECT * FROM repositories WHERE user_id=? ORDER BY id'); $q->execute([$user['id']]); $repositories=$q->fetchAll();
-    $synced=0; $unchanged=0; $skipped=0; $errors=[];
+    $q=db()->prepare('SELECT * FROM repositories WHERE user_id=? ORDER BY id DESC'); $q->execute([$user['id']]); $repositories=[];
+    foreach($q->fetchAll() as $repository){ $key=strtolower((string)$repository['full_name']); if(!isset($repositories[$key])) $repositories[$key]=$repository; }
+    $repositories=array_values($repositories); $synced=0; $unchanged=0; $skipped=0; $errors=[];
     try { $github=new GitHubClient(github_token((int)$user['id'])); }
     catch(RuntimeException $e){ json_response(['error'=>$e->getMessage()],502); }
     foreach($repositories as $repository){
@@ -29,7 +32,7 @@ if(in_array($data['action']??'',['remove','delete','sync'],true)){
     $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']]); $repository=$q->fetch();
     if(!$repository) json_response(['error'=>'Repository not found.'],404);
     if($action==='remove'){
-        $q=db()->prepare('DELETE FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']]);
+        $q=db()->prepare('DELETE FROM repositories WHERE user_id=? AND LOWER(full_name)=LOWER(?)'); $q->execute([$user['id'],$repository['full_name']]);
         json_response(['ok'=>true,'message'=>'Repository removed from ESPForge.']);
     }
     try {
@@ -37,7 +40,7 @@ if(in_array($data['action']??'',['remove','delete','sync'],true)){
         if(empty($metadata['fork'])) json_response(['error'=>'This repository is not a fork, so ESPForge will not modify or delete it.'],422);
         if($action==='delete'){
             $github->request('DELETE','/repos/'.$repository['full_name']);
-            $q=db()->prepare('DELETE FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']]);
+            $q=db()->prepare('DELETE FROM repositories WHERE user_id=? AND LOWER(full_name)=LOWER(?)'); $q->execute([$user['id'],$repository['full_name']]);
             json_response(['ok'=>true,'message'=>'GitHub fork deleted and repository removed from ESPForge.']);
         }
         $result=$github->request('POST','/repos/'.$repository['full_name'].'/merge-upstream',['branch'=>$repository['default_branch']]);
@@ -69,6 +72,9 @@ try {
         }
     }
     $branch=$metadata['default_branch']??'main';
+    $q=db()->prepare('SELECT id FROM repositories WHERE user_id=? AND LOWER(full_name)=LOWER(?) LIMIT 1');
+    $q->execute([$user['id'],$full]);
+    if($q->fetch()) json_response(['error'=>'This repository already exists in your ESPForge list.'],409);
     $tree=$github->tree($full,$branch); $entries=$tree['tree']??[]; $paths=array_column($entries,'path'); $analysis=WorkflowEngine::analyze($paths);
     $source=$analysis['framework']==='arduino'?$github->sourceBundle($full,$branch,$entries):'';
     $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
