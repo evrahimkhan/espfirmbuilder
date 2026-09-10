@@ -21,8 +21,9 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
     foreach($runs['workflow_runs']??[] as $run){
      if(strtotime($run['created_at'])>=strtotime($build['created_at'])-10){
       $build['github_run_id']=$run['id']; $build['status']=$run['status']; $build['conclusion']=$run['conclusion']; $build['artifact_url']=$run['html_url'];
+      $completedAt=$run['status']==='completed'?date('Y-m-d H:i:s'):null; $build['completed_at']=$completedAt;
       $q=db()->prepare('UPDATE builds SET github_run_id=?,status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?');
-      $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$run['status']==='completed'?date('Y-m-d H:i:s'):null,$build['id']]); break;
+      $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$completedAt,$build['id']]); break;
      }
     }
    }
