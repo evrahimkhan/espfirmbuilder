@@ -28,6 +28,7 @@ if (in_array($action, ['github', 'google'], true)) {
     $provider = $action;
     if (empty($config[$provider]['client_id'])) json_response(['error' => ucfirst($provider) . ' OAuth is not configured.'], 503);
     $_SESSION['oauth_state'] = bin2hex(random_bytes(20)); $_SESSION['oauth_provider'] = $provider;
+    $_SESSION['oauth_link_user_id'] = isset($_SESSION['user']['id']) ? (int)$_SESSION['user']['id'] : null;
     $base = $provider === 'github' ? 'https://github.com/login/oauth/authorize' : 'https://accounts.google.com/o/oauth2/v2/auth';
     $scope = $provider === 'github' ? 'read:user user:email repo workflow delete_repo' : 'openid email profile';
     $params = ['client_id'=>$config[$provider]['client_id'], 'redirect_uri'=>$config[$provider]['redirect_uri'], 'scope'=>$scope, 'state'=>$_SESSION['oauth_state'], 'response_type'=>'code'];
@@ -77,8 +78,28 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
     $q=db()->prepare("SELECT * FROM users WHERE {$idColumn}=? LIMIT 1"); $q->execute([$providerId]); $providerRecord=$q->fetch();
     $q=db()->prepare('SELECT * FROM users WHERE email=? LIMIT 1'); $q->execute([$email]); $emailRecord=$q->fetch();
     $name=$profile['name']??$profile['login']??explode('@',$email)[0];
+    $linkRecord=null; $linkId=(int)($_SESSION['oauth_link_user_id']??0);
+    if($linkId){ $q=db()->prepare('SELECT * FROM users WHERE id=?'); $q->execute([$linkId]); $linkRecord=$q->fetch(); }
     try {
-        if($providerRecord){
+        if($linkRecord){
+            $id=(int)$linkRecord['id']; $sessionEmail=$linkRecord['email'];
+            if($providerRecord && (int)$providerRecord['id']!==$id){
+                $sourceId=(int)$providerRecord['id']; db()->beginTransaction();
+                db()->prepare('UPDATE repositories SET user_id=? WHERE user_id=?')->execute([$id,$sourceId]);
+                db()->prepare('UPDATE flash_configs SET user_id=? WHERE user_id=?')->execute([$id,$sourceId]);
+                $githubId=$linkRecord['github_id']?:$providerRecord['github_id'];
+                $googleId=$linkRecord['google_id']?:$providerRecord['google_id'];
+                $githubToken=$linkRecord['github_token']?:$providerRecord['github_token'];
+                $aiProvider=$linkRecord['ai_provider']?:$providerRecord['ai_provider'];
+                $aiKey=$linkRecord['ai_api_key']?:$providerRecord['ai_api_key'];
+                db()->prepare('UPDATE users SET github_id=NULL,google_id=NULL WHERE id=?')->execute([$sourceId]);
+                db()->prepare('UPDATE users SET github_id=?,google_id=?,github_token=?,ai_provider=?,ai_api_key=? WHERE id=?')->execute([$githubId,$googleId,$githubToken,$aiProvider,$aiKey,$id]);
+                db()->prepare('DELETE FROM users WHERE id=?')->execute([$sourceId]); db()->commit();
+            }
+            $sql="UPDATE users SET {$idColumn}=?, name=?"; $values=[$providerId,$name];
+            if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); }
+            $sql.=' WHERE id=?'; $values[]=$id; db()->prepare($sql)->execute($values);
+        } elseif($providerRecord){
             // Always preserve the existing provider identity. An email/password account may
             // already own the newly disclosed email, so do not move it implicitly.
             $id=(int)$providerRecord['id'];
@@ -97,9 +118,10 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
             $q->execute([$email,$name,$providerId,$githubToken]); $id=(int)db()->lastInsertId(); $sessionEmail=$email;
         }
     } catch(PDOException $e) {
+        if(db()->inTransaction()) db()->rollBack();
         error_log('ESPForge OAuth account link failed: '.$e->getMessage());
         json_response(['error'=>'This provider identity is already linked to another account. Sign out and use the originally linked account.'],409);
     }
-    unset($_SESSION['oauth_state'],$_SESSION['oauth_provider']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; header('Location: ../dashboard.html'); exit;
+    unset($_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; header('Location: ../dashboard.html'); exit;
 }
 json_response(['error' => 'Unknown action'], 404);
