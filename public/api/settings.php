@@ -33,6 +33,14 @@ if (($data['action'] ?? '') === 'test_ai_key') {
     if ($response === false || $error !== '') json_response(['error'=>'Could not contact the AI provider: '.$error],502);
     $payload = json_decode($response,true);
     $providerMessage = trim((string)($payload['error']['message'] ?? $payload['message'] ?? ''));
+    if ($provider === 'google' && stripos($providerMessage,'location is not supported') !== false) {
+        json_response([
+            'ok'=>true,
+            'valid'=>true,
+            'usable'=>false,
+            'message'=>'The API key was accepted, but Google Gemini blocks requests from this hosting server location. Select OpenRouter to use AI analysis from this server.'
+        ]);
+    }
     if ($status === 400 || $status === 401 || $status === 403) {
         $detail=$providerMessage!==''?' Provider response: '.substr($providerMessage,0,300):'';
         json_response(['error'=>($provider === 'google'?'Google Gemini':'OpenRouter').' rejected the API key.'.$detail],422);
