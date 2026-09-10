@@ -21,4 +21,28 @@ if($kind==='artifact'){
 $ch=curl_init($url); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_FOLLOWLOCATION=>true,CURLOPT_MAXREDIRS=>3,CURLOPT_HTTPHEADER=>['Accept: application/vnd.github+json','Authorization: Bearer '.$token,'User-Agent: ESPForge','X-GitHub-Api-Version: 2022-11-28'],CURLOPT_TIMEOUT=>120]);
 $body=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); $error=curl_error($ch); curl_close($ch);
 if($body===false||$status<200||$status>=300) json_response(['error'=>'Download failed'.($error!==''?': '.$error:'.')],502);
+
+// GitHub always wraps an Actions artifact in a transport ZIP. If the artifact
+// itself is one ZIP file, unwrap that outer archive so the browser receives the
+// firmware ZIP directly instead of artifact.zip containing another ZIP.
+if($kind==='artifact' && class_exists('ZipArchive')){
+ $temporary=tempnam(sys_get_temp_dir(),'espforge-artifact-');
+ if($temporary!==false && file_put_contents($temporary,$body)!==false){
+  $zip=new ZipArchive();
+  if($zip->open($temporary)===true){
+   $zipEntries=[];
+   for($index=0;$index<$zip->numFiles;$index++){
+    $entry=$zip->getNameIndex($index);
+    if($entry!==false && !str_ends_with($entry,'/') && str_ends_with(strtolower($entry),'.zip')) $zipEntries[]=$index;
+   }
+   if(count($zipEntries)===1){
+    $entryName=(string)$zip->getNameIndex($zipEntries[0]); $inner=$zip->getFromIndex($zipEntries[0]);
+    if($inner!==false){ $body=$inner; $filename=basename($entryName); }
+   }
+   $zip->close();
+  }
+  @unlink($temporary);
+ }
+}
+$filename=preg_replace('/[^A-Za-z0-9_.-]/','_',$filename)?:'espforge-download.zip';
 header('Content-Type: application/zip'); header('Content-Disposition: attachment; filename="'.$filename.'"'); header('Content-Length: '.strlen($body)); header('Cache-Control: private, no-store'); echo $body;
