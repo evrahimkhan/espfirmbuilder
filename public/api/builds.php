@@ -6,6 +6,11 @@ require __DIR__ . '/../../src/TargetAnalyzer.php';
 require __DIR__ . '/../../src/AITargetAnalyzer.php';
 $user=require_user();
 if($_SERVER['REQUEST_METHOD']==='GET'){
+ if(isset($_GET['details'])){
+  $id=(int)$_GET['details']; $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?'); $q->execute([$id,$user['id']]); $build=$q->fetch();
+  if(!$build||empty($build['github_run_id'])) json_response(['error'=>'Build run details are not available.'],404);
+  try{$client=new GitHubClient(github_token((int)$user['id']));$jobs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/jobs?per_page=100');json_response(['jobs'=>array_map(fn($job)=>['name'=>$job['name']??'Build','status'=>$job['status']??'queued','conclusion'=>$job['conclusion']??null,'steps'=>array_map(fn($step)=>['name'=>$step['name']??'Step','status'=>$step['status']??'queued','conclusion'=>$step['conclusion']??null],$job['steps']??[])],$jobs['jobs']??[])]);}catch(RuntimeException $e){json_response(['error'=>$e->getMessage()],502);}
+ }
  $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
  $builds=$q->fetchAll();
  if(($_GET['refresh']??'')==='1') try {
@@ -36,6 +41,11 @@ if(($data['action']??'')==='clear_logs'){
  // totals and success-rate calculations remain accurate.
  $q=db()->prepare("UPDATE builds b INNER JOIN repositories r ON r.id=b.repo_id SET b.logs='__CLEARED__' WHERE r.user_id=? AND b.status='completed'");
  $q->execute([$user['id']]); json_response(['ok'=>true,'cleared'=>$q->rowCount()]);
+}
+if(($data['action']??'')==='cancel_build'){
+ $id=(int)($data['build_id']??0);$q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?');$q->execute([$id,$user['id']]);$build=$q->fetch();
+ if(!$build||empty($build['github_run_id'])) json_response(['error'=>'The running build could not be found.'],404);
+ try{$github=new GitHubClient(github_token((int)$user['id']));$github->request('POST','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/cancel');db()->prepare("UPDATE builds SET status='completed',conclusion='cancelled',completed_at=NOW() WHERE id=?")->execute([$id]);json_response(['ok'=>true]);}catch(RuntimeException $e){json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502);}
 }
 $repo=(int)($data['repo_id']??0); $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$repo,$user['id']]); $repository=$q->fetch(); if(!$repository) json_response(['error'=>'Repository not found'],404);
 try {
