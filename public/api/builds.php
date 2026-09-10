@@ -8,8 +8,26 @@ $user=require_user();
 if($_SERVER['REQUEST_METHOD']==='GET'){
  $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
  $builds=$q->fetchAll();
- // Reconcile recent builds with GitHub runs while keeping dashboard polling inexpensive.
- if(($_GET['refresh']??'')==='1') try { $client=new GitHubClient(github_token((int)$user['id'])); foreach($builds as &$build){ if(!in_array($build['status'],['queued','in_progress'],true)) continue; $runs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs?per_page=20'); foreach($runs['workflow_runs']??[] as $run){ if(strtotime($run['created_at'])>=strtotime($build['created_at'])-10){ $q=db()->prepare('UPDATE builds SET github_run_id=?,status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?'); $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$run['status']==='completed'?date('Y-m-d H:i:s'):null,$build['id']]); $build['github_run_id']=$run['id'];$build['status']=$run['status'];$build['conclusion']=$run['conclusion'];break; } } } } catch(Throwable $ignored) {}
+ if(($_GET['refresh']??'')==='1') try {
+  $client=new GitHubClient(github_token((int)$user['id']));
+  foreach($builds as &$build){
+   if(in_array($build['status'],['queued','in_progress'],true)){
+    $runs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs?per_page=20');
+    foreach($runs['workflow_runs']??[] as $run){
+     if(strtotime($run['created_at'])>=strtotime($build['created_at'])-10){
+      $build['github_run_id']=$run['id']; $build['status']=$run['status']; $build['conclusion']=$run['conclusion']; $build['artifact_url']=$run['html_url'];
+      $q=db()->prepare('UPDATE builds SET github_run_id=?,status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?');
+      $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$run['status']==='completed'?date('Y-m-d H:i:s'):null,$build['id']]); break;
+     }
+    }
+   }
+   if(!empty($build['github_run_id']) && (in_array($build['status'],['queued','in_progress'],true) || $build===$builds[0])){
+    $jobs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/jobs?per_page=100');
+    $build['jobs']=array_map(fn($job)=>['name'=>$job['name']??'Build','status'=>$job['status']??'queued','conclusion'=>$job['conclusion']??null,'steps'=>array_map(fn($step)=>['name'=>$step['name']??'Step','status'=>$step['status']??'queued','conclusion'=>$step['conclusion']??null],$job['steps']??[])],$jobs['jobs']??[]);
+   }
+  }
+  unset($build);
+ } catch(Throwable $ignored) {}
  json_response(['builds'=>$builds]);
 }
 verify_csrf(); $data=body(); $repo=(int)($data['repo_id']??0); $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$repo,$user['id']]); $repository=$q->fetch(); if(!$repository) json_response(['error'=>'Repository not found'],404);

@@ -1,6 +1,6 @@
 let csrf='',repos=[],loader=null,transport=null;
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
-function tab(name){$$('.tab').forEach(x=>x.classList.toggle('active',x.id===name));$$('aside nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));$('#title').textContent=({overview:'Workspace overview',repos:'Repositories',builds:'Build history',flash:'Web Flasher',settings:'Settings'})[name]||'ESPForge'}
+function tab(name){$$('.tab').forEach(x=>x.classList.toggle('active',x.id===name));$$('aside nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));$('#title').textContent=({overview:'Workspace overview',repos:'Repositories',builds:'Live Builds',flash:'Web Flasher',settings:'Settings'})[name]||'ESPForge'}
 $$('[data-tab]').forEach(b=>b.onclick=()=>tab(b.dataset.tab)); $('#new-project').onclick=()=>tab('repos');
 $('#logout-button').onclick=async()=>{const button=$('#logout-button');button.disabled=true;try{await api('api/auth.php?action=logout',{method:'POST',body:'{}'});location.href='index.html'}catch(error){button.disabled=false;alert(error.message)}};
 async function api(url,opt={}){opt.headers={...(opt.headers||{}),'Content-Type':'application/json','X-CSRF-Token':csrf};const r=await fetch(url,opt),d=await r.json();if(r.status===401){location.href='index.html';throw Error('Please sign in')}if(!r.ok)throw Error(d.error||'Request failed');return d}
@@ -9,11 +9,14 @@ async function load(){
  const session=await api('api/auth.php?action=session');csrf=session.csrf;if(!session.user){location.href='index.html';return}
  $('#username').textContent=session.user.name;$('#email').textContent=session.user.email;$('#avatar').textContent=session.user.name[0].toUpperCase();
  const [p,b,s]=await Promise.all([api('api/projects.php'),api('api/builds.php?refresh=1'),api('api/settings.php')]); repos=p.projects;renderRepos();
- $('#build-count').textContent=b.builds.length; if(b.builds.length)$('#build-list').innerHTML=b.builds.map(x=>`<p><span>${escapeHtml(x.conclusion||x.status)}</span> ${escapeHtml(x.full_name)} — build #${x.id}${x.artifact_url?` · <a href="${escapeHtml(x.artifact_url)}" target="_blank" rel="noopener">Open run</a>`:''}</p>`).join('');
+ $('#build-count').textContent=b.builds.length;renderBuilds(b.builds);
  $('#github-status').textContent=s.settings.github_connected?'✓ GitHub connected':'GitHub is not connected'; $('#github-status').className=s.settings.github_connected?'connected':'';
  if(s.settings.ai_provider)$('#settings-form [name=ai_provider]').value=s.settings.ai_provider;
  const keyStatus=$('#api-key-status');if(keyStatus&&!keyStatus.dataset.checked)keyStatus.textContent=s.settings.ai_key_configured?'A saved API key is configured.':'No API key is configured.';
 }
+function renderBuilds(builds){const list=$('#build-list');if(!builds.length){list.innerHTML='<div class="terminal"><p><span>system</span> No builds have been triggered yet.</p></div>';return}list.innerHTML=builds.map((build,index)=>{const state=build.conclusion||build.status||'queued',active=['queued','in_progress'].includes(build.status),jobs=(build.jobs||[]).map(job=>`<div class="build-job"><b>${escapeHtml(job.name)}</b>${(job.steps||[]).map(step=>`<p><i class="step-state ${escapeHtml(step.conclusion||step.status)}"></i><span>${escapeHtml(step.name)}</span><small>${escapeHtml(step.conclusion||step.status)}</small></p>`).join('')}</div>`).join('');const actions=build.status==='completed'?(build.conclusion==='success'?`<a class="build-download" href="api/build-download.php?build_id=${build.id}&kind=artifact">Download artifact</a>`:`<a class="build-download error-download" href="api/build-download.php?build_id=${build.id}&kind=logs">Download error log</a>`):'';return `<article class="build-card ${active?'live':''}"><header><div><span class="build-status ${escapeHtml(state)}">${active?'● ':''}${escapeHtml(state)}</span><h3>${escapeHtml(build.full_name)} <small>#${build.id}</small></h3></div><div class="build-actions">${actions}${build.artifact_url?`<a href="${escapeHtml(build.artifact_url)}" target="_blank" rel="noopener">Open GitHub run</a>`:''}</div></header>${jobs||`<div class="build-waiting">${active?'Waiting for GitHub runner and live steps…':'Detailed steps are no longer being polled.'}</div>`}</article>`}).join('')}
+async function refreshBuilds(){try{const result=await api('api/builds.php?refresh=1');$('#build-count').textContent=result.builds.length;renderBuilds(result.builds)}catch(error){console.error(error)}}
+$('#refresh-builds').onclick=refreshBuilds;
 function renderRepos(){
  $('#repo-count').textContent=repos.length;const html=repos.map(r=>`<div class="repo-row"><i>⌘</i><div><b>${escapeHtml(r.full_name)}</b><small>${escapeHtml(r.framework||'Awaiting analysis')} · ${escapeHtml(r.status)}</small></div><button class="primary" onclick="build(${r.id})">Build</button></div>`).join('');
  $('#repos-list').innerHTML=html;$('#project-list').className=repos.length?'':'empty';$('#project-list').innerHTML=html||'<b>No repositories yet</b><span>Connect a GitHub repository to start building.</span>';
@@ -36,4 +39,4 @@ $('#connect-device').onclick=async()=>{
   await loader.writeFlash({fileArray:[{data:binary,address}],flashSize:'keep',eraseAll:false,compress:true,reportProgress:(i,w,t)=>{button.textContent=`Flashing ${Math.round(w/t*100)}%`}});terminal.writeLine('Flash complete. Resetting device…');await transport.setDTR(false);await transport.setRTS(true);await new Promise(r=>setTimeout(r,100));await transport.setRTS(false);button.textContent='Flash complete ✓';
  }catch(e){log.textContent+='\nFlash failed: '+e.message;button.textContent='Try again'}finally{button.disabled=false}
 };
-load().catch(e=>console.error(e));
+load().catch(e=>console.error(e));setInterval(()=>{if($('#builds').classList.contains('active'))refreshBuilds()},6000);
