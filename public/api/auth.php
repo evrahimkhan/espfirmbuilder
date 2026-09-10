@@ -28,7 +28,11 @@ if (in_array($action, ['github', 'google'], true)) {
     $provider = $action;
     if (empty($config[$provider]['client_id'])) json_response(['error' => ucfirst($provider) . ' OAuth is not configured.'], 503);
     $_SESSION['oauth_state'] = bin2hex(random_bytes(20)); $_SESSION['oauth_provider'] = $provider;
-    $_SESSION['oauth_link_user_id'] = isset($_SESSION['user']['id']) ? (int)$_SESSION['user']['id'] : null;
+    $currentUserId=isset($_SESSION['user']['id'])?(int)$_SESSION['user']['id']:0;
+    $_SESSION['oauth_link_user_id']=$currentUserId?:null;
+    // Bind account linking to this exact OAuth state. This survives the external
+    // redirect more reliably than a single mutable session value.
+    $_SESSION['oauth_link_users'][$_SESSION['oauth_state']]=$currentUserId;
     $base = $provider === 'github' ? 'https://github.com/login/oauth/authorize' : 'https://accounts.google.com/o/oauth2/v2/auth';
     $scope = $provider === 'github' ? 'read:user user:email repo workflow delete_repo' : 'openid email profile';
     $params = ['client_id'=>$config[$provider]['client_id'], 'redirect_uri'=>$config[$provider]['redirect_uri'], 'scope'=>$scope, 'state'=>$_SESSION['oauth_state'], 'response_type'=>'code'];
@@ -37,8 +41,8 @@ if (in_array($action, ['github', 'google'], true)) {
 }
 
 if (in_array($action, ['github_callback', 'google_callback'], true)) {
-    $provider = str_replace('_callback', '', $action);
-    if (!hash_equals($_SESSION['oauth_state'] ?? '', $_GET['state'] ?? '') || ($_SESSION['oauth_provider'] ?? '') !== $provider) json_response(['error'=>'Invalid OAuth state.'], 400);
+    $provider = str_replace('_callback', '', $action); $oauthState=(string)($_GET['state']??'');
+    if (!hash_equals($_SESSION['oauth_state'] ?? '', $oauthState) || ($_SESSION['oauth_provider'] ?? '') !== $provider) json_response(['error'=>'Invalid OAuth state.'], 400);
     if (empty($_GET['code'])) json_response(['error'=>'Authorization was cancelled.'], 400);
     $tokenUrl = $provider === 'github' ? 'https://github.com/login/oauth/access_token' : 'https://oauth2.googleapis.com/token';
     $payload = ['client_id'=>$config[$provider]['client_id'], 'client_secret'=>$config[$provider]['client_secret'], 'code'=>$_GET['code'], 'redirect_uri'=>$config[$provider]['redirect_uri']];
@@ -78,7 +82,8 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
     $q=db()->prepare("SELECT * FROM users WHERE {$idColumn}=? LIMIT 1"); $q->execute([$providerId]); $providerRecord=$q->fetch();
     $q=db()->prepare('SELECT * FROM users WHERE email=? LIMIT 1'); $q->execute([$email]); $emailRecord=$q->fetch();
     $name=$profile['name']??$profile['login']??explode('@',$email)[0];
-    $linkRecord=null; $linkId=(int)($_SESSION['oauth_link_user_id']??0);
+    $linkRecord=null;
+    $linkId=(int)($_SESSION['oauth_link_users'][$oauthState]??$_SESSION['oauth_link_user_id']??$_SESSION['user']['id']??0);
     if($linkId){ $q=db()->prepare('SELECT * FROM users WHERE id=?'); $q->execute([$linkId]); $linkRecord=$q->fetch(); }
     try {
         if($linkRecord){
@@ -122,6 +127,6 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         error_log('ESPForge OAuth account link failed: '.$e->getMessage());
         json_response(['error'=>'This provider identity is already linked to another account. Sign out and use the originally linked account.'],409);
     }
-    unset($_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; header('Location: ../dashboard.html'); exit;
+    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; header('Location: ../dashboard.html'); exit;
 }
 json_response(['error' => 'Unknown action'], 404);
