@@ -22,17 +22,25 @@ if (($data['action'] ?? '') === 'test_ai_key') {
     if ($key === '') json_response(['error' => 'Enter or save an AI API key first.'], 422);
 
     $url = $provider === 'google'
-        ? 'https://generativelanguage.googleapis.com/v1beta/models?key=' . rawurlencode($key)
+        ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash'
         : 'https://openrouter.ai/api/v1/auth/key';
     $headers = ['Accept: application/json', 'User-Agent: ESPForge'];
-    if ($provider === 'openrouter') $headers[] = 'Authorization: Bearer ' . $key;
+    if ($provider === 'google') $headers[] = 'x-goog-api-key: ' . $key;
+    else $headers[] = 'Authorization: Bearer ' . $key;
     $ch = curl_init($url);
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>15,CURLOPT_FOLLOWLOCATION=>false]);
     $response = curl_exec($ch); $status = (int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); $error = curl_error($ch); curl_close($ch);
     if ($response === false || $error !== '') json_response(['error'=>'Could not contact the AI provider: '.$error],502);
     $payload = json_decode($response,true);
-    if ($status === 401 || $status === 403 || ($provider === 'google' && $status === 400)) json_response(['error'=>'The '.$provider.' API key is invalid or unauthorized.'],422);
-    if ($status < 200 || $status >= 300) json_response(['error'=>'The AI provider returned HTTP '.$status.'. Please try again later.'],502);
+    $providerMessage = trim((string)($payload['error']['message'] ?? $payload['message'] ?? ''));
+    if ($status === 400 || $status === 401 || $status === 403) {
+        $detail=$providerMessage!==''?' Provider response: '.substr($providerMessage,0,300):'';
+        json_response(['error'=>($provider === 'google'?'Google Gemini':'OpenRouter').' rejected the API key.'.$detail],422);
+    }
+    if ($status < 200 || $status >= 300) {
+        $detail=$providerMessage!==''?' '.substr($providerMessage,0,300):'';
+        json_response(['error'=>'The AI provider returned HTTP '.$status.'.'.$detail],502);
+    }
     $detail = $provider === 'openrouter' && isset($payload['data']['label']) ? ' · '.$payload['data']['label'] : '';
     json_response(['ok'=>true,'valid'=>true,'message'=>($provider === 'google' ? 'Google Gemini' : 'OpenRouter').' API key is valid'.$detail.'.']);
 }
