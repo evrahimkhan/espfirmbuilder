@@ -32,8 +32,10 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
 }
 verify_csrf(); $data=body();
 if(($data['action']??'')==='clear_logs'){
- $q=db()->prepare('DELETE b FROM builds b INNER JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=?');
- $q->execute([$user['id']]); json_response(['ok'=>true,'deleted'=>$q->rowCount()]);
+ // Hide completed log entries without deleting build records, so monthly build
+ // totals and success-rate calculations remain accurate.
+ $q=db()->prepare("UPDATE builds b INNER JOIN repositories r ON r.id=b.repo_id SET b.logs='__CLEARED__' WHERE r.user_id=? AND b.status='completed'");
+ $q->execute([$user['id']]); json_response(['ok'=>true,'cleared'=>$q->rowCount()]);
 }
 $repo=(int)($data['repo_id']??0); $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$repo,$user['id']]); $repository=$q->fetch(); if(!$repository) json_response(['error'=>'Repository not found'],404);
 try {
