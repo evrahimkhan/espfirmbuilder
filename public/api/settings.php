@@ -33,7 +33,7 @@ if (($data['action'] ?? '') === 'test_ai_key') {
 
     $url = $provider === 'google'
         ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash'
-        : 'https://openrouter.ai/api/v1/auth/key';
+        : 'https://openrouter.ai/api/v1/key';
     $headers = ['Accept: application/json', 'User-Agent: ESPForge'];
     if ($provider === 'google') $headers[] = 'x-goog-api-key: ' . $key;
     else $headers[] = 'Authorization: Bearer ' . $key;
