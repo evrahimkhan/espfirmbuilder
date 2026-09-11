@@ -88,18 +88,17 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
     try {
         if($linkRecord){
             $id=(int)$linkRecord['id']; $sessionEmail=$linkRecord['email'];
+            // Provider identities are exclusive. Never merge, transfer, or replace
+            // another workspace merely because an authenticated user tries to link it.
             if($providerRecord && (int)$providerRecord['id']!==$id){
-                $sourceId=(int)$providerRecord['id']; db()->beginTransaction();
-                db()->prepare('UPDATE repositories SET user_id=? WHERE user_id=?')->execute([$id,$sourceId]);
-                db()->prepare('UPDATE flash_configs SET user_id=? WHERE user_id=?')->execute([$id,$sourceId]);
-                $githubId=$linkRecord['github_id']?:$providerRecord['github_id'];
-                $googleId=$linkRecord['google_id']?:$providerRecord['google_id'];
-                $githubToken=$linkRecord['github_token']?:$providerRecord['github_token'];
-                $aiProvider=$linkRecord['ai_provider']?:$providerRecord['ai_provider'];
-                $aiKey=$linkRecord['ai_api_key']?:$providerRecord['ai_api_key'];
-                db()->prepare('UPDATE users SET github_id=NULL,google_id=NULL WHERE id=?')->execute([$sourceId]);
-                db()->prepare('UPDATE users SET github_id=?,google_id=?,github_token=?,ai_provider=?,ai_api_key=? WHERE id=?')->execute([$githubId,$googleId,$githubToken,$aiProvider,$aiKey,$id]);
-                db()->prepare('DELETE FROM users WHERE id=?')->execute([$sourceId]); db()->commit();
+                json_response(['error'=>ucfirst($provider).' is already connected to another ESPForge account. Sign in with that account or choose a different provider account.'],409);
+            }
+            $linkedProviderId=(string)($linkRecord[$idColumn]??'');
+            if($linkedProviderId!=='' && !hash_equals($linkedProviderId,$providerId)){
+                json_response(['error'=>'This ESPForge account is already connected to a different '.ucfirst($provider).' account. Disconnecting or replacing linked identities is not allowed.'],409);
+            }
+            if($emailRecord && (int)$emailRecord['id']!==$id){
+                json_response(['error'=>'The provider email belongs to another ESPForge account. Accounts and saved data cannot be merged or replaced.'],409);
             }
             $sql="UPDATE users SET {$idColumn}=?, name=?"; $values=[$providerId,$name];
             if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); }
@@ -114,6 +113,10 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
             $sql.=' WHERE id=?'; $values[]=$id; db()->prepare($sql)->execute($values);
         } elseif($emailRecord){
             $id=(int)$emailRecord['id']; $sessionEmail=$emailRecord['email'];
+            $linkedProviderId=(string)($emailRecord[$idColumn]??'');
+            if($linkedProviderId!=='' && !hash_equals($linkedProviderId,$providerId)){
+                json_response(['error'=>'An ESPForge account with this email is already connected to a different '.ucfirst($provider).' identity. Existing accounts cannot be replaced.'],409);
+            }
             $sql="UPDATE users SET {$idColumn}=?, name=?"; $values=[$providerId,$name];
             if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); }
             $sql.=' WHERE id=?'; $values[]=$id; db()->prepare($sql)->execute($values);
