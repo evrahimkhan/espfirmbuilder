@@ -1,6 +1,8 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 $user = require_user();
+try { ensure_ai_key_ownership(); }
+catch(Throwable $e){ error_log('ESPForge API key ownership migration failed: '.$e->getMessage()); json_response(['error'=>'API key ownership storage could not be initialized.'],503); }
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $record = user_record((int)$user['id']);
     json_response(['settings' => [
@@ -15,8 +17,12 @@ $provider = $data['ai_provider'] ?? null;
 if ($provider !== null && !in_array($provider, ['google', 'openrouter'], true)) json_response(['error' => 'Unsupported AI provider.'], 422);
 $key = trim((string)($data['ai_api_key'] ?? ''));
 if (($data['action'] ?? '') === 'remove_ai_key') {
-    $q=db()->prepare('UPDATE users SET ai_api_key=NULL WHERE id=?'); $q->execute([$user['id']]);
+    $q=db()->prepare('UPDATE users SET ai_api_key=NULL,ai_key_fingerprint=NULL WHERE id=?'); $q->execute([$user['id']]);
     json_response(['ok'=>true,'message'=>'AI API key removed from this account.']);
+}
+if ($key !== '') {
+    $fingerprint=ai_key_fingerprint($key); $q=db()->prepare('SELECT id FROM users WHERE ai_key_fingerprint=? AND id<>? LIMIT 1'); $q->execute([$fingerprint,$user['id']]);
+    if($q->fetch()) json_response(['error'=>'This API key is already bound to another ESPForge account. Use a different API key.'],409);
 }
 if (($data['action'] ?? '') === 'test_ai_key') {
     $record = user_record((int)$user['id']);
@@ -56,8 +62,10 @@ if (($data['action'] ?? '') === 'test_ai_key') {
     json_response(['ok'=>true,'valid'=>true,'message'=>($provider === 'google' ? 'Google Gemini' : 'OpenRouter').' API key is valid for this account.']);
 }
 if ($key !== '') {
-    $q = db()->prepare('UPDATE users SET ai_provider=?, ai_api_key=? WHERE id=?');
-    $q->execute([$provider, encrypt_secret($key), $user['id']]);
+    $current=user_record((int)$user['id']); $currentFingerprint=(string)($current['ai_key_fingerprint']??'');
+    if($currentFingerprint!==''&&!hash_equals($currentFingerprint,ai_key_fingerprint($key))) json_response(['error'=>'Remove the currently bound API key before saving a different key.'],409);
+    $q = db()->prepare('UPDATE users SET ai_provider=?, ai_api_key=?, ai_key_fingerprint=? WHERE id=?');
+    $q->execute([$provider, encrypt_secret($key), ai_key_fingerprint($key), $user['id']]);
 } elseif ($provider !== null) {
     $q = db()->prepare('UPDATE users SET ai_provider=? WHERE id=?');
     $q->execute([$provider, $user['id']]);

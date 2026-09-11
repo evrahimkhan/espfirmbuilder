@@ -19,6 +19,21 @@ function verify_csrf(): void { $h=$_SERVER['HTTP_X_CSRF_TOKEN']??''; if(!hash_eq
 function require_user(): array { if(empty($_SESSION['user'])) json_response(['error'=>'Authentication required'],401); return $_SESSION['user']; }
 function encrypt_secret(string $value): string { global $config; $key=hash('sha256',$config['security']['encryption_key'],true); $iv=random_bytes(12); $tag=''; $cipher=openssl_encrypt($value,'aes-256-gcm',$key,OPENSSL_RAW_DATA,$iv,$tag); if($cipher===false) throw new RuntimeException('Secret encryption failed'); return base64_encode($iv.$tag.$cipher); }
 function decrypt_secret(?string $value): ?string { global $config; if(!$value) return null; $data=base64_decode($value,true); if($data===false || strlen($data)<29) return null; $key=hash('sha256',$config['security']['encryption_key'],true); $plain=openssl_decrypt(substr($data,28),'aes-256-gcm',$key,OPENSSL_RAW_DATA,substr($data,0,12),substr($data,12,16)); return $plain===false?null:$plain; }
+function ai_key_fingerprint(string $value): string { global $config; return hash_hmac('sha256',$value,$config['security']['encryption_key']); }
+function ensure_ai_key_ownership(): void {
+    static $done=false; if($done) return; $done=true; $pdo=db();
+    $column=$pdo->query("SHOW COLUMNS FROM users LIKE 'ai_key_fingerprint'")->fetch();
+    if(!$column) $pdo->exec('ALTER TABLE users ADD COLUMN ai_key_fingerprint CHAR(64) NULL, ADD UNIQUE INDEX uq_ai_key_fingerprint (ai_key_fingerprint)');
+    $rows=$pdo->query('SELECT id,ai_api_key,ai_key_fingerprint FROM users WHERE ai_api_key IS NOT NULL ORDER BY id')->fetchAll(); $owners=[];
+    foreach($rows as $row){
+        $plain=decrypt_secret($row['ai_api_key']); if(!$plain) continue; $fingerprint=ai_key_fingerprint($plain);
+        if(isset($owners[$fingerprint]) && $owners[$fingerprint]!=(int)$row['id']){
+            $q=$pdo->prepare('UPDATE users SET ai_api_key=NULL,ai_key_fingerprint=NULL WHERE id=?'); $q->execute([$row['id']]); continue;
+        }
+        $owners[$fingerprint]=(int)$row['id'];
+        if(($row['ai_key_fingerprint']??'')!==$fingerprint){ $q=$pdo->prepare('UPDATE users SET ai_key_fingerprint=? WHERE id=?'); $q->execute([$fingerprint,$row['id']]); }
+    }
+}
 function user_record(int $id): array { $q=db()->prepare('SELECT * FROM users WHERE id=?'); $q->execute([$id]); $user=$q->fetch(); if(!$user) json_response(['error'=>'User not found'],404); return $user; }
 function github_token(int $userId): string { $token=decrypt_secret(user_record($userId)['github_token']??null); if(!$token) json_response(['error'=>'Connect GitHub in Settings before continuing.'],409); return $token; }
 function db(): PDO { global $config; static $pdo; if(!$pdo) $pdo=new PDO($config['database']['dsn'],$config['database']['user'],$config['database']['password'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]); return $pdo; }
