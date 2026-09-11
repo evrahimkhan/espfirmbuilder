@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 $action = $_GET['action'] ?? 'session';
+function oauth_dashboard_error(string $message): never { header('Location: ../dashboard.html?oauth_error='.rawurlencode($message).'#settings'); exit; }
 
 if ($action === 'session') json_response(['user' => $_SESSION['user'] ?? null, 'csrf' => csrf()]);
 if ($action === 'logout') { verify_csrf(); session_destroy(); json_response(['ok' => true]); }
@@ -91,14 +92,14 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
             // Provider identities are exclusive. Never merge, transfer, or replace
             // another workspace merely because an authenticated user tries to link it.
             if($providerRecord && (int)$providerRecord['id']!==$id){
-                json_response(['error'=>ucfirst($provider).' is already connected to another ESPForge account. Sign in with that account or choose a different provider account.'],409);
+                oauth_dashboard_error(ucfirst($provider).' is already connected to another ESPForge account. Sign in with that account or choose a different provider account.');
             }
             $linkedProviderId=(string)($linkRecord[$idColumn]??'');
             if($linkedProviderId!=='' && !hash_equals($linkedProviderId,$providerId)){
-                json_response(['error'=>'This ESPForge account is already connected to a different '.ucfirst($provider).' account. Disconnecting or replacing linked identities is not allowed.'],409);
+                oauth_dashboard_error('This ESPForge account is already connected to a different '.ucfirst($provider).' account. Disconnecting or replacing linked identities is not allowed.');
             }
             if($emailRecord && (int)$emailRecord['id']!==$id){
-                json_response(['error'=>'The provider email belongs to another ESPForge account. Accounts and saved data cannot be merged or replaced.'],409);
+                oauth_dashboard_error('The provider email belongs to another ESPForge account. Accounts and saved data cannot be merged or replaced.');
             }
             $sql="UPDATE users SET {$idColumn}=?, name=?"; $values=[$providerId,$name];
             if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); }
@@ -115,7 +116,7 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
             $id=(int)$emailRecord['id']; $sessionEmail=$emailRecord['email'];
             $linkedProviderId=(string)($emailRecord[$idColumn]??'');
             if($linkedProviderId!=='' && !hash_equals($linkedProviderId,$providerId)){
-                json_response(['error'=>'An ESPForge account with this email is already connected to a different '.ucfirst($provider).' identity. Existing accounts cannot be replaced.'],409);
+                oauth_dashboard_error('An ESPForge account with this email is already connected to a different '.ucfirst($provider).' identity. Existing accounts cannot be replaced.');
             }
             $sql="UPDATE users SET {$idColumn}=?, name=?"; $values=[$providerId,$name];
             if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); }
@@ -128,7 +129,7 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
     } catch(PDOException $e) {
         if(db()->inTransaction()) db()->rollBack();
         error_log('ESPForge OAuth account link failed: '.$e->getMessage());
-        json_response(['error'=>'This provider identity is already linked to another account. Sign out and use the originally linked account.'],409);
+        oauth_dashboard_error('This provider identity is already linked to another account. Sign out and use the originally linked account.');
     }
     unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; header('Location: ../dashboard.html'); exit;
 }
