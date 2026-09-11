@@ -14,6 +14,10 @@ $data = body();
 $provider = $data['ai_provider'] ?? null;
 if ($provider !== null && !in_array($provider, ['google', 'openrouter'], true)) json_response(['error' => 'Unsupported AI provider.'], 422);
 $key = trim((string)($data['ai_api_key'] ?? ''));
+if (($data['action'] ?? '') === 'remove_ai_key') {
+    $q=db()->prepare('UPDATE users SET ai_api_key=NULL WHERE id=?'); $q->execute([$user['id']]);
+    json_response(['ok'=>true,'message'=>'AI API key removed from this account.']);
+}
 if (($data['action'] ?? '') === 'test_ai_key') {
     $record = user_record((int)$user['id']);
     $provider = $provider ?: ($record['ai_provider'] ?? null);
@@ -49,8 +53,7 @@ if (($data['action'] ?? '') === 'test_ai_key') {
         $detail=$providerMessage!==''?' '.substr($providerMessage,0,300):'';
         json_response(['error'=>'The AI provider returned HTTP '.$status.'.'.$detail],502);
     }
-    $detail = $provider === 'openrouter' && isset($payload['data']['label']) ? ' · '.$payload['data']['label'] : '';
-    json_response(['ok'=>true,'valid'=>true,'message'=>($provider === 'google' ? 'Google Gemini' : 'OpenRouter').' API key is valid'.$detail.'.']);
+    json_response(['ok'=>true,'valid'=>true,'message'=>($provider === 'google' ? 'Google Gemini' : 'OpenRouter').' API key is valid for this account.']);
 }
 if ($key !== '') {
     $q = db()->prepare('UPDATE users SET ai_provider=?, ai_api_key=? WHERE id=?');
