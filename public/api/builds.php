@@ -10,11 +10,11 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
  if(isset($_GET['details'])){
   $id=(int)$_GET['details']; $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?'); $q->execute([$id,$user['id']]); $build=$q->fetch();
   if(!$build||empty($build['github_run_id'])) json_response(['error'=>'Build run details are not available.'],404);
-  try{$client=new GitHubClient(github_token((int)$user['id']));$jobs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/jobs?per_page=100');json_response(['jobs'=>array_map(fn($job)=>['name'=>$job['name']??'Build','status'=>$job['status']??'queued','conclusion'=>$job['conclusion']??null,'steps'=>array_map(fn($step)=>['name'=>$step['name']??'Step','status'=>$step['status']??'queued','conclusion'=>$step['conclusion']??null],$job['steps']??[])],$jobs['jobs']??[])]);}catch(RuntimeException $e){json_response(['error'=>$e->getMessage()],502);}
+  try{$client=new GitHubClient(github_token((int)$user['id']));$jobs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/jobs?per_page=100');json_response(['jobs'=>array_map(fn($job)=>['name'=>$job['name']??'Build','status'=>$job['status']??'queued','conclusion'=>$job['conclusion']??null,'steps'=>array_map(fn($step)=>['name'=>$step['name']??'Step','status'=>$step['status']??'queued','conclusion'=>$step['conclusion']??null],$job['steps']??[])],$jobs['jobs']??[])]);}catch(RuntimeException $e){if($e instanceof PDOException)throw $e;json_response(['error'=>$e->getMessage()],502);}
  }
  $q=db()->prepare('SELECT b.*,UNIX_TIMESTAMP(b.created_at) created_epoch,UNIX_TIMESTAMP(b.completed_at) completed_epoch,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
  $builds=$q->fetchAll();
- if(($_GET['refresh']??'')==='1' && time()-(int)($_SESSION['github_build_refresh']??0)>=5) try {
+ if(($_GET['refresh']??'')==='1' && time()-(int)($_SESSION['github_build_refresh']??0)>=5 && time()>=(int)($_SESSION['github_build_backoff_until']??0)) try {
   $_SESSION['github_build_refresh']=time();
   $client=new GitHubClient(github_token((int)$user['id'])); $runsByRepository=[];
   foreach($builds as &$build){
@@ -36,8 +36,8 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
     $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$completedAt,$build['id']]); break;
    }
   }
-  unset($build);
- } catch(Throwable $error) { error_log('ESPForge build refresh failed: '.$error->getMessage()); }
+  unset($build);$_SESSION['github_build_refresh_failures']=0;unset($_SESSION['github_build_backoff_until']);
+ } catch(Throwable $error) { $failures=min(6,(int)($_SESSION['github_build_refresh_failures']??0)+1);$_SESSION['github_build_refresh_failures']=$failures;$_SESSION['github_build_backoff_until']=time()+min(300,5*(2**$failures));error_log('ESPForge build refresh failed; backing off: '.$error->getMessage()); }
  json_response(['builds'=>$builds]);
 }
 verify_csrf(); $data=body();
@@ -52,7 +52,7 @@ if(($data['action']??'')==='clear_logs'){
 if(($data['action']??'')==='cancel_build'){
  $id=(int)($data['build_id']??0);$q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?');$q->execute([$id,$user['id']]);$build=$q->fetch();
  if(!$build||empty($build['github_run_id'])) json_response(['error'=>'The running build could not be found.'],404);
- try{$github=new GitHubClient(github_token((int)$user['id']));$github->request('POST','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/cancel');db()->prepare("UPDATE builds SET status='completed',conclusion='cancelled',completed_at=NOW() WHERE id=?")->execute([$id]);json_response(['ok'=>true]);}catch(RuntimeException $e){json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502);}
+ try{$github=new GitHubClient(github_token((int)$user['id']));$github->request('POST','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/cancel');db()->prepare("UPDATE builds SET status='completed',conclusion='cancelled',completed_at=NOW() WHERE id=?")->execute([$id]);json_response(['ok'=>true]);}catch(RuntimeException $e){if($e instanceof PDOException)throw $e;json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502);}
 }
 $repo=(int)($data['repo_id']??0); $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$repo,$user['id']]); $repository=$q->fetch(); if(!$repository) json_response(['error'=>'Repository not found'],404);
 try {
@@ -109,4 +109,4 @@ try {
  audit_event('build.dispatched',['build_id'=>$buildId,'repository'=>$repository['full_name'],'target'=>$target['id']??$target['name'],'uuid'=>$buildUuid]);
  json_response(['id'=>$buildId,'status'=>'queued','workflow'=>$workflowFile],202);
 }
-catch(RuntimeException $e){ json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }
+catch(RuntimeException $e){ if($e instanceof PDOException) throw $e; json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }

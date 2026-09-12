@@ -16,7 +16,7 @@ if(($data['action']??'')==='sync_all'){
     foreach($q->fetchAll() as $repository){ $key=strtolower((string)$repository['full_name']); if(!isset($repositories[$key])) $repositories[$key]=$repository; }
     $repositories=array_values($repositories); $synced=0; $unchanged=0; $skipped=0; $errors=[];
     try { $github=new GitHubClient(github_token((int)$user['id'])); }
-    catch(RuntimeException $e){ json_response(['error'=>$e->getMessage()],502); }
+    catch(RuntimeException $e){ if($e instanceof PDOException) throw $e; json_response(['error'=>$e->getMessage()],502); }
     foreach($repositories as $repository){
         try {
             $metadata=$github->repository($repository['full_name']);
@@ -92,4 +92,4 @@ try {
     $q=db()->prepare('INSERT INTO repositories(user_id,repo_url,full_name,default_branch,framework,workflow_config,status) VALUES(?,?,?,?,?,?,?)');
     $q->execute([$user['id'],$url,$full,$branch,$analysis['framework'],$workflow,'workflow_ready']);
     json_response(['id'=>(int)db()->lastInsertId(),'full_name'=>$full,'forked_from'=>$forkedFrom,'analysis'=>$analysis],201);
-} catch(Throwable $e) { json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }
+} catch(Throwable $e) { if($e instanceof PDOException) throw $e; json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }

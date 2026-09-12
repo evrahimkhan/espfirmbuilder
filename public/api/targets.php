@@ -14,4 +14,4 @@ try{
     $fallback=$key&&in_array($provider,['google','openrouter'],true)?fn()=>(new AITargetAnalyzer($provider,$key))->discover($github,$repository['full_name'],$repository['default_branch'],$paths):null;
     $targets=TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths,$fallback);
     json_response(['targets'=>$targets,'ai_fallback_available'=>(bool)$key]);
-}catch(RuntimeException $e){ json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }
+}catch(RuntimeException $e){ if($e instanceof PDOException) throw $e; json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }
