@@ -18,6 +18,8 @@ if(($data['action']??'')==='sync_all'){
     try { $github=new GitHubClient(github_token((int)$user['id'])); }
     catch(RuntimeException $e){ if($e instanceof PDOException) throw $e; json_response(['error'=>$e->getMessage()],502); }
     foreach($repositories as $repository){
+        $syncLock=try_operation_lock('repository-config:'.strtolower((string)$repository['full_name']));
+        if($syncLock===false){$errors[]=$repository['full_name'].': another repository operation is in progress.';continue;}
         try {
             $metadata=$github->repository($repository['full_name']);
             if(empty($metadata['fork'])){ $skipped++; continue; }
@@ -25,6 +27,7 @@ if(($data['action']??'')==='sync_all'){
             $message=strtolower((string)($result['message']??''));
             if(str_contains($message,'already up to date')||str_contains($message,'not behind')) $unchanged++; else $synced++;
         } catch(RuntimeException $e){ $errors[]=$repository['full_name'].': '.$e->getMessage(); }
+        finally { unset($syncLock); }
     }
     json_response(['ok'=>true,'synced'=>$synced,'unchanged'=>$unchanged,'skipped'=>$skipped,'errors'=>$errors,'message'=>"Sync complete: {$synced} updated, {$unchanged} already current, {$skipped} non-forks skipped, ".count($errors).' failed.']);
 }
@@ -32,6 +35,7 @@ if(in_array($data['action']??'',['remove','delete','sync'],true)){
     $action=(string)$data['action']; $id=(int)($data['repo_id']??0);
     $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$id,$user['id']]); $repository=$q->fetch();
     if(!$repository) json_response(['error'=>'Repository not found.'],404);
+    $repositoryOperationLock=in_array($action,['sync','delete'],true)?operation_lock('repository-config:'.strtolower((string)$repository['full_name'])):null;
     if($action==='remove'){
         $q=db()->prepare('DELETE FROM repositories WHERE user_id=? AND LOWER(full_name)=LOWER(?)'); $q->execute([$user['id'],$repository['full_name']]);
         json_response(['ok'=>true,'message'=>'Repository removed from ESPForge.']);
@@ -79,6 +83,10 @@ try {
     $branch=$metadata['default_branch']??'main';
     $q=db()->prepare('SELECT id FROM repositories WHERE user_id=? AND LOWER(full_name)=LOWER(?) LIMIT 1');
     $q->execute([$user['id'],$full]);
+    if($q->fetch()) json_response(['error'=>'This repository already exists in your ESPForge list.'],409);
+    $repositoryOperationLock=operation_lock('repository-config:'.strtolower($full));
+    // Re-check after acquiring the cross-request lock to close the connect race.
+    $q=db()->prepare('SELECT id FROM repositories WHERE user_id=? AND LOWER(full_name)=LOWER(?) LIMIT 1');$q->execute([$user['id'],$full]);
     if($q->fetch()) json_response(['error'=>'This repository already exists in your ESPForge list.'],409);
     $tree=$github->tree($full,$branch); $entries=$tree['tree']??[]; $paths=array_column($entries,'path'); $analysis=WorkflowEngine::analyze($paths);
     $source=$analysis['framework']==='arduino'?$github->sourceBundle($full,$branch,$entries):'';
