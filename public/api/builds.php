@@ -32,16 +32,31 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
     $response=$client->request('GET','/repos/'.$repository.'/actions/workflows/espforge-build.yml/runs?per_page=50');
     $runsByRepository[$repository]=$response['workflow_runs']??[];
    }
+   $matched=false;
    foreach($runsByRepository[$repository] as $run){
-    $uuid=(string)($build['build_uuid']??'');
+    $uuid=(string)($build['build_uuid']??'');$knownRun=(int)($build['github_run_id']??0);
     $runTitle=(string)($run['display_title']??$run['name']??'');
-    $matches=$uuid!=='' ? str_contains($runTitle,$uuid) : strtotime($run['created_at'])>=strtotime($build['created_at'])-10;
+    $matches=$knownRun>0 ? (int)$run['id']===$knownRun : ($uuid!=='' ? str_contains($runTitle,$uuid) : strtotime($run['created_at'])>=strtotime($build['created_at'])-10);
     if(!$matches) continue;
-    $build['github_run_id']=$run['id']; $build['status']=$run['status']; $build['conclusion']=$run['conclusion']; $build['artifact_url']=$run['html_url'];
+    $matched=true;$build['github_run_id']=$run['id']; $build['status']=$run['status']; $build['conclusion']=$run['conclusion']; $build['artifact_url']=$run['html_url'];
     $completedAt=$run['status']==='completed'?date('Y-m-d H:i:s',strtotime($run['updated_at']??'now')):null;
     $build['completed_at']=$completedAt; $build['completed_epoch']=$completedAt?strtotime($run['updated_at']??'now'):null;
     $q=db()->prepare('UPDATE builds SET github_run_id=?,status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?');
     $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$completedAt,$build['id']]); break;
+   }
+   if(!$matched&&!empty($build['github_run_id'])){
+    try{
+     $run=$client->request('GET','/repos/'.$repository.'/actions/runs/'.(int)$build['github_run_id']);
+     $completedAt=($run['status']??'')==='completed'?date('Y-m-d H:i:s',strtotime($run['updated_at']??'now')):null;
+     $build['status']=$run['status']??$build['status'];$build['conclusion']=$run['conclusion']??null;$build['artifact_url']=$run['html_url']??$build['artifact_url'];$build['completed_at']=$completedAt;$build['completed_epoch']=$completedAt?strtotime($run['updated_at']??'now'):null;
+     db()->prepare('UPDATE builds SET status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?')->execute([$build['status'],$build['conclusion'],$build['artifact_url'],$completedAt,$build['id']]);$matched=true;
+    }catch(RuntimeException $runError){
+     if($runError->getCode()!==404)throw $runError;$build['status']='completed';$build['conclusion']='failure';$build['completed_at']=date('Y-m-d H:i:s');$build['completed_epoch']=time();db()->prepare("UPDATE builds SET status='completed',conclusion='failure',completed_at=NOW(),logs='The linked GitHub Actions run is no longer available.' WHERE id=?")->execute([$build['id']]);$matched=true;
+    }
+   }
+   if(!$matched&&empty($build['github_run_id'])&&strtotime($build['created_at'])<time()-7200){
+    $build['status']='completed';$build['conclusion']='timed_out';$build['completed_at']=date('Y-m-d H:i:s');$build['completed_epoch']=time();
+    db()->prepare("UPDATE builds SET status='completed',conclusion='timed_out',completed_at=NOW(),logs='GitHub did not create a matching workflow run within two hours.' WHERE id=?")->execute([$build['id']]);
    }
   }
   unset($build);$_SESSION['github_build_refresh_failures']=0;unset($_SESSION['github_build_backoff_until']);
