@@ -5,6 +5,7 @@ require __DIR__ . '/../../src/WorkflowEngine.php';
 require __DIR__ . '/../../src/TargetAnalyzer.php';
 require __DIR__ . '/../../src/AITargetAnalyzer.php';
 $user=require_user();
+verify_csrf();
 if($_SERVER['REQUEST_METHOD']==='GET'){
  $requestBucket=isset($_GET['details'])?'build-details':(($_GET['refresh']??'')==='1'?'build-refresh':'build-list');
  rate_limit($requestBucket,$requestBucket==='build-refresh'?40:60,60);
@@ -63,7 +64,7 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
  } catch(Throwable $error) { $failures=min(6,(int)($_SESSION['github_build_refresh_failures']??0)+1);$_SESSION['github_build_refresh_failures']=$failures;$_SESSION['github_build_backoff_until']=time()+min(300,5*(2**$failures));error_log('ESPForge build refresh failed; backing off: '.$error->getMessage()); }
  json_response(['builds'=>$builds,'total'=>$totalBuilds,'success_rate'=>$successRate]);
 }
-verify_csrf(); $data=body();
+$data=body();
 $buildAction=(string)($data['action']??'dispatch');
 rate_limit('build-'.$buildAction,$buildAction==='dispatch'?5:20,$buildAction==='dispatch'?600:60);
 if(($data['action']??'')==='clear_logs'){

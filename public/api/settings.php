@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 $user = require_user();
+verify_csrf();
 rate_limit('settings', $_SERVER['REQUEST_METHOD'] === 'GET' ? 60 : 15, 60);
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $record = user_record((int)$user['id']);
@@ -10,7 +11,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         'ai_key_configured' => !empty($record['ai_api_key']),
     ]]);
 }
-verify_csrf();
 $data = body();
 $provider = $data['ai_provider'] ?? null;
 if ($provider !== null && !in_array($provider, ['google', 'openrouter'], true)) json_response(['error' => 'Unsupported AI provider.'], 422);

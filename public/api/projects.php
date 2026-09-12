@@ -3,6 +3,7 @@ require __DIR__ . '/../../src/bootstrap.php';
 require __DIR__ . '/../../src/GitHubClient.php';
 require __DIR__ . '/../../src/WorkflowEngine.php';
 $user = require_user();
+verify_csrf();
 rate_limit('projects', $_SERVER['REQUEST_METHOD'] === 'GET' ? 60 : 12, 60);
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $q=db()->prepare('SELECT r.*, (SELECT status FROM builds b WHERE b.repo_id=r.id ORDER BY id DESC LIMIT 1) build_status FROM repositories r WHERE user_id=? ORDER BY id DESC');
@@ -10,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     foreach($q->fetchAll() as $project){ $key=strtolower((string)$project['full_name']); if(!isset($projects[$key])) $projects[$key]=$project; }
     json_response(['projects'=>array_values($projects)]);
 }
-verify_csrf(); $data=body();
+$data=body();
 if(($data['action']??'')==='sync_all'){
     $q=db()->prepare('SELECT * FROM repositories WHERE user_id=? ORDER BY id DESC'); $q->execute([$user['id']]); $repositories=[];
     foreach($q->fetchAll() as $repository){ $key=strtolower((string)$repository['full_name']); if(!isset($repositories[$key])) $repositories[$key]=$repository; }
