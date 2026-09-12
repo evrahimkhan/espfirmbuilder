@@ -64,16 +64,26 @@ YAML;
           ESPFORGE_ARTIFACT_PREFIX: "{$prefix}"
         run: |
           python - <<'PY'
-          import os, pathlib
+          import os, pathlib, re
           root = pathlib.Path("firmware-output")
           prefix = os.environ["ESPFORGE_ARTIFACT_PREFIX"]
-          suffixes = [".bootloader.bin", ".partitions.bin", ".merged.bin", ".bin", ".elf", ".map"]
+          def role(path):
+              name = path.name.lower()
+              if "bootloader" in name: return "bootloader", ".bin"
+              if "partition" in name: return "partitions", ".bin"
+              if "merged" in name or "merged-flash" in name: return "merged", ".bin"
+              if any(item in name for item in ("littlefs", "spiffs", "fatfs", "filesystem")): return "filesystem", ".bin"
+              if name.endswith(".elf"): return "application", ".elf"
+              if name.endswith(".map"): return "application", ".map"
+              if name == "firmware.bin" or name.endswith(".ino.bin"): return "application", ".bin"
+              label = re.sub(r"[^a-z0-9_.-]+", "-", path.stem).strip(".-") or "firmware"
+              return label, path.suffix or ".bin"
           for path in [item for item in root.rglob("*") if item.is_file()]:
-              suffix = next((item for item in suffixes if path.name.endswith(item)), None)
-              filename = prefix + suffix if suffix else prefix + "-" + path.name
+              label, extension = role(path)
+              filename = f"{prefix}-{label}{extension}"
               destination, counter = root / filename, 2
               while destination.exists() and destination != path:
-                  destination = root / f"{prefix}-{counter}{suffix or '-' + path.name}"
+                  destination = root / f"{prefix}-{label}-{counter}{extension}"
                   counter += 1
               if destination != path:
                   path.replace(destination)
