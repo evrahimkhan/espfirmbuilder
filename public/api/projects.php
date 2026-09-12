@@ -41,7 +41,7 @@ if(in_array($data['action']??'',['remove','delete','sync'],true)){
         if(empty($metadata['fork'])) json_response(['error'=>'This repository is not a fork, so ESPForge will not modify or delete it.'],422);
         if($action==='delete'){
             $github->request('DELETE','/repos/'.$repository['full_name']);
-            $q=db()->prepare('DELETE FROM repositories WHERE user_id=? AND LOWER(full_name)=LOWER(?)'); $q->execute([$user['id'],$repository['full_name']]);
+            $q=db()->prepare('DELETE FROM repositories WHERE user_id=? AND LOWER(full_name)=LOWER(?)'); $q->execute([$user['id'],$repository['full_name']]); audit_event('repository.fork_deleted',['repository'=>$repository['full_name']]);
             json_response(['ok'=>true,'message'=>'GitHub fork deleted and repository removed from ESPForge.']);
         }
         $result=$github->request('POST','/repos/'.$repository['full_name'].'/merge-upstream',['branch'=>$repository['default_branch']]);

@@ -16,7 +16,7 @@ $provider = $data['ai_provider'] ?? null;
 if ($provider !== null && !in_array($provider, ['google', 'openrouter'], true)) json_response(['error' => 'Unsupported AI provider.'], 422);
 $key = trim((string)($data['ai_api_key'] ?? ''));
 if (($data['action'] ?? '') === 'remove_ai_key') {
-    $q=db()->prepare('UPDATE users SET ai_api_key=NULL,ai_key_fingerprint=NULL WHERE id=?'); $q->execute([$user['id']]);
+    $q=db()->prepare('UPDATE users SET ai_api_key=NULL,ai_key_fingerprint=NULL WHERE id=?'); $q->execute([$user['id']]); audit_event('ai_key.removed');
     json_response(['ok'=>true,'message'=>'AI API key removed from this account.']);
 }
 if ($key !== '') {

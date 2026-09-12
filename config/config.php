@@ -11,6 +11,8 @@ $base['database']['dsn'] = getenv('DB_DSN') ?: $base['database']['dsn'];
 $base['database']['user'] = getenv('DB_USER') ?: $base['database']['user'];
 $base['database']['password'] = getenv('DB_PASSWORD') ?: $base['database']['password'];
 $base['security']['encryption_key'] = getenv('APP_KEY') ?: $base['security']['encryption_key'];
+$previousKeys=getenv('APP_PREVIOUS_KEYS');
+if($previousKeys!==false&&trim($previousKeys)!=='') $base['security']['previous_encryption_keys']=array_values(array_filter(array_map('trim',explode(',',$previousKeys))));
 $base['github']['client_id'] = getenv('GITHUB_CLIENT_ID') ?: $base['github']['client_id'];
 $base['github']['client_secret'] = getenv('GITHUB_CLIENT_SECRET') ?: $base['github']['client_secret'];
 $base['google']['client_id'] = getenv('GOOGLE_CLIENT_ID') ?: $base['google']['client_id'];

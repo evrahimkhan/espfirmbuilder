@@ -100,6 +100,7 @@ try {
  $q=db()->prepare("INSERT INTO builds(repo_id,build_uuid,status,logs) VALUES(?,?,'queued',?)"); $q->execute([$repo,$buildUuid,$buildMessage]); $buildId=(int)db()->lastInsertId();
  try { $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs); }
  catch(RuntimeException $dispatchError){ db()->prepare("UPDATE builds SET status='completed',conclusion='failure',completed_at=NOW(),logs=? WHERE id=?")->execute(['Dispatch failed: '.$dispatchError->getMessage(),$buildId]); throw $dispatchError; }
+ audit_event('build.dispatched',['build_id'=>$buildId,'repository'=>$repository['full_name'],'target'=>$target['id']??$target['name'],'uuid'=>$buildUuid]);
  json_response(['id'=>$buildId,'status'=>'queued','workflow'=>$workflowFile],202);
 }
 catch(RuntimeException $e){ json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }

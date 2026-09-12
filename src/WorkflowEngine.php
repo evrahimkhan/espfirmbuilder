@@ -16,13 +16,13 @@ final class WorkflowEngine
     {
         // Quote the trigger key and use an explicit empty mapping. This avoids YAML
         // 1.1 parsers treating `on` as a boolean and guarantees GitHub registers it.
-        $header="name: ESPForge firmware build\nrun-name: ESPForge build \${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n\n\"on\":\n  workflow_dispatch:\n    inputs:\n      espforge_build_uuid:\n        description: Unique ESPForge build identifier\n        required: true\n        type: string\n  repository_dispatch:\n    types: [espforge_build]\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: espforge-\${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n  cancel-in-progress: false\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@v4\n";
+        $header="name: ESPForge firmware build\nrun-name: ESPForge build \${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n\n\"on\":\n  workflow_dispatch:\n    inputs:\n      espforge_build_uuid:\n        description: Unique ESPForge build identifier\n        required: true\n        type: string\n  repository_dispatch:\n    types: [espforge_build]\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: espforge-\${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n  cancel-in-progress: false\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683\n";
         if($framework==='platformio') return $header.<<<'YAML'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.x"
       - name: Install PlatformIO
-        run: pip install --disable-pip-version-check platformio
+        run: pip install --disable-pip-version-check platformio==6.1.18
       - name: Build firmware
         run: pio run
       - name: Collect binaries
@@ -30,7 +30,7 @@ final class WorkflowEngine
           mkdir -p firmware-output
           find . -maxdepth 1 -type f -name "*.bin" -exec cp {} firmware-output/ \;
           find .pio/build -type f -name "*.bin" -exec cp --parents {} firmware-output/ \;
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: espforge-firmware
           path: firmware-output/
@@ -39,14 +39,14 @@ YAML;
         if($framework==='esp-idf') return $header.<<<'YAML'
       - uses: espressif/esp-idf-ci-action@v1
         with:
-          esp_idf_version: latest
+          esp_idf_version: v5.5.1
           target: esp32
           path: "."
       - name: Collect binaries
         run: |
           mkdir -p firmware-output
           find build -maxdepth 2 -type f -name "*.bin" -exec cp --parents {} firmware-output/ \;
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: espforge-firmware
           path: firmware-output/
@@ -76,17 +76,19 @@ YAML;
         $hasV2Setup=in_array('Libraries/User_Setup v2.h',$paths,true);
         if($isEsp32S3&&$hasV2Setup) $install.="\n          cp \"Libraries/User_Setup v2.h\" \"\$HOME/Arduino/libraries/TFT_eSPI/User_Setup.h\"";
         // Some legacy projects bundle platform.txt for the 2.0.x ESP32 core and do not compile on 3.x.
-        $core=$legacy?'esp32:esp32@2.0.10':'esp32:esp32';
+        $core=$legacy?'esp32:esp32@2.0.10':'esp32:esp32@3.2.1';
         $platformPatch=$legacy?'          cp "Libraries/platform.txt" "$HOME/.arduino15/packages/esp32/hardware/esp32/2.0.10/platform.txt"':'';
         $fqbn=$isEsp32S3?'esp32:esp32:esp32s3:PSRAM=enabled,PartitionScheme=min_spiffs,FlashMode=dio':'esp32:esp32:esp32';
         return <<<YAML
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
       - name: Install Arduino CLI
         run: |
           python -m pip install --disable-pip-version-check pyserial
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
+          curl --proto '=https' --tlsv1.2 -fsSLo arduino-cli.tar.gz https://github.com/arduino/arduino-cli/releases/download/v1.3.1/arduino-cli_1.3.1_Linux_64bit.tar.gz
+          test "$(stat -c%s arduino-cli.tar.gz)" -gt 10000000
+          mkdir -p bin && tar -xzf arduino-cli.tar.gz -C bin arduino-cli
           echo "\$PWD/bin" >> "\$GITHUB_PATH"
       - name: Install ESP32 core
         run: |
@@ -101,7 +103,7 @@ YAML;
 {$install}
       - name: Compile firmware
         run: arduino-cli compile --fqbn "{$fqbn}" --output-dir firmware-output "\$(dirname "\$(find . -name '*.ino' -print -quit)")"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: espforge-firmware
           path: firmware-output/*.bin

@@ -31,7 +31,7 @@ php -S 0.0.0.0:8080 -t public
 Open `http://localhost:8080`. Configure settings through environment variables where possible:
 
 ```text
-APP_URL, APP_ENV, APP_KEY, DB_DSN, DB_USER, DB_PASSWORD
+APP_URL, APP_ENV, APP_KEY, APP_PREVIOUS_KEYS, DB_DSN, DB_USER, DB_PASSWORD
 GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 ```
