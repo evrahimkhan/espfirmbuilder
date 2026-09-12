@@ -4,7 +4,7 @@ $action = $_GET['action'] ?? 'session';
 function oauth_dashboard_error(string $message): never { $page=!empty($_SESSION['user'])?'dashboard.html':'index.html'; $fragment=$page==='dashboard.html'?'#settings':''; header('Location: ../'.$page.'?oauth_error='.rawurlencode($message).$fragment); exit; }
 function auth_landing_message(string $message): never { header('Location: ../index.html?auth_message='.rawurlencode($message)); exit; }
 function oauth_json_request(string $url,array $headers,array $form=[]): array { $raw='';$overflow=false;$max=1024*1024;$ch=curl_init($url);$options=[CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>20,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use(&$raw,&$overflow,$max):int{if(strlen($raw)+strlen($chunk)>$max){$overflow=true;return 0;}$raw.=$chunk;return strlen($chunk);}];if($form){$options[CURLOPT_POST]=true;$options[CURLOPT_POSTFIELDS]=http_build_query($form,'','&',PHP_QUERY_RFC3986);}curl_setopt_array($ch,$options);$ok=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);$error=curl_error($ch);curl_close($ch);$payload=json_decode($raw?:'[]',true);if($ok===false||$overflow||$status<200||$status>=300||!is_array($payload)){throw new RuntimeException($overflow?'OAuth response exceeded the safety limit.':($error!==''?$error:'OAuth provider returned HTTP '.$status),$status);}return $payload; }
-function send_verification_email(array $record): bool { global $config; $from=(string)($config['mail']['from']??''); if(!filter_var($from,FILTER_VALIDATE_EMAIL)) return false; $token=bin2hex(random_bytes(32));$hash=hash('sha256',$token);db()->prepare('DELETE FROM email_verification_tokens WHERE user_id=? OR expires_at<NOW()')->execute([$record['id']]);db()->prepare('INSERT INTO email_verification_tokens(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))')->execute([$record['id'],$hash]);$link=rtrim((string)$config['app']['url'],'/').'/api/auth.php?action=verify_email&token='.rawurlencode($token);$name=preg_replace('/[\r\n]+/',' ',(string)$record['name']);$text="Hello {$name},\n\nVerify your ESPForge email within 24 hours:\n{$link}\n\nIf you did not create this account, ignore this email.";return @mail((string)$record['email'],'Verify your ESPForge email',$text,['From'=>$from,'Content-Type'=>'text/plain; charset=UTF-8']); }
+function send_verification_email(array $record): bool { global $config; $from=(string)($config['mail']['from']??''); if(!filter_var($from,FILTER_VALIDATE_EMAIL)) return false; $token=bin2hex(random_bytes(32));$hash=hash('sha256',$token);$pdo=db();$pdo->prepare('INSERT INTO email_verification_tokens(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))')->execute([$record['id'],$hash]);$tokenId=(int)$pdo->lastInsertId();$link=rtrim((string)$config['app']['url'],'/').'/api/auth.php?action=verify_email&token='.rawurlencode($token);$name=preg_replace('/[\r\n]+/',' ',(string)$record['name']);$text="Hello {$name},\n\nVerify your ESPForge email within 24 hours:\n{$link}\n\nIf you did not create this account, ignore this email.";$sent=@mail((string)$record['email'],'Verify your ESPForge email',$text,['From'=>$from,'Content-Type'=>'text/plain; charset=UTF-8']);if(!$sent)$pdo->prepare('DELETE FROM email_verification_tokens WHERE id=?')->execute([$tokenId]);return $sent; }
 
 if ($action === 'session') { if(!empty($_SESSION['user'])) require_user(); json_response(['user' => $_SESSION['user'] ?? null, 'csrf' => csrf()]); }
 if ($action === 'logout') { verify_csrf(); audit_event('auth.logout'); $_SESSION=[]; if(ini_get('session.use_cookies')){$params=session_get_cookie_params();setcookie(session_name(),'',time()-42000,$params['path'],$params['domain'],$params['secure'],$params['httponly']);} session_destroy(); json_response(['ok' => true]); }
@@ -27,17 +27,17 @@ if ($action === 'request_password_reset') {
     if($email){
         $q=db()->prepare('SELECT id,name,email FROM users WHERE email=? LIMIT 1');$q->execute([$email]);$record=$q->fetch();
         if($record){
-            $token=bin2hex(random_bytes(32));$hash=hash('sha256',$token);
-            db()->prepare('DELETE FROM password_reset_tokens WHERE user_id=? OR expires_at<NOW()')->execute([$record['id']]);
-            db()->prepare('INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 30 MINUTE))')->execute([$record['id'],$hash]);
-            $from=(string)($config['mail']['from']??'');
+            $token=bin2hex(random_bytes(32));$hash=hash('sha256',$token);$pdo=db();
+            $pdo->prepare('INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 30 MINUTE))')->execute([$record['id'],$hash]);$tokenId=(int)$pdo->lastInsertId();
+            $from=(string)($config['mail']['from']??'');$sent=false;
             if(filter_var($from,FILTER_VALIDATE_EMAIL)){
                 $link=rtrim((string)$config['app']['url'],'/').'/?reset_token='.rawurlencode($token);
-                $subject='Reset your ESPForge password';$bodyText="Hello {$record['name']},\n\nUse this one-time link within 30 minutes to reset your ESPForge password:\n{$link}\n\nIf you did not request this, ignore this email.";
+                $safeName=preg_replace('/[\r\n]+/',' ',(string)$record['name']);$subject='Reset your ESPForge password';$bodyText="Hello {$safeName},\n\nUse this one-time link within 30 minutes to reset your ESPForge password:\n{$link}\n\nIf you did not request this, ignore this email.";
                 $sent=@mail((string)$record['email'],$subject,$bodyText,['From'=>$from,'Content-Type'=>'text/plain; charset=UTF-8']);
                 if(!$sent) error_log('ESPForge password reset mail delivery failed for user '.$record['id']);
             } else error_log('ESPForge MAIL_FROM is not configured; password reset mail not sent.');
-            audit_event('password_reset.requested',['user_id'=>(int)$record['id']]);
+            if(!$sent)$pdo->prepare('DELETE FROM password_reset_tokens WHERE id=?')->execute([$tokenId]);
+            audit_event('password_reset.requested',['user_id'=>(int)$record['id'],'delivery_succeeded'=>$sent]);
         }
     }
     json_response(['ok'=>true,'message'=>$message]);
