@@ -26,6 +26,25 @@ PROMPT;
         return $this->validate($text);
     }
 
+    public function discoverLibraries(string $source,array $context=[]): array
+    {
+        preg_match_all('/^\s*#\s*include\s*[<"]([^>"]+)[>"]/m',$source,$matches);
+        $headers=array_values(array_unique(array_filter($matches[1]??[],fn($header)=>strlen($header)<=160)));
+        if(!$headers)return [];
+        $safeContext=['fqbn'=>substr((string)($context['fqbn']??''),0,200),'esp32_core'=>substr((string)($context['core_version']??''),0,30),'framework'=>'arduino'];
+        $prompt="Identify Arduino Library Manager dependencies compatible with this build context. Return ONLY a JSON array of objects with name and exact semver version. Use the exact Arduino Library Manager package name (including spaces), not a GitHub repository name. Omit ESP32 core/built-in headers and uncertain guesses. Maximum 30 items.\nBuild context: ".json_encode($safeContext,JSON_UNESCAPED_SLASHES)."\nHeaders:\n".implode("\n",array_slice($headers,0,200));
+        $text=$this->provider==='google'?$this->gemini($prompt):$this->openRouter($prompt);
+        $text=trim(preg_replace('/^```(?:json)?|```$/m','',trim($text))??$text);$items=json_decode($text,true);
+        if(!is_array($items))throw new RuntimeException('AI returned an invalid Arduino library analysis.',502);
+        $result=[];
+        foreach(array_slice($items,0,30) as $item){
+            if(!is_array($item))continue;$name=trim((string)($item['name']??''));$version=trim((string)($item['version']??''));
+            if(!preg_match('/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,99}$/',$name)||!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/',$version))continue;
+            $result[strtolower($name)]=$name.'@'.$version;
+        }
+        return array_values($result);
+    }
+
     private function gemini(string $prompt): string
     {
         $url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';

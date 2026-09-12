@@ -12,7 +12,7 @@ final class WorkflowEngine
         throw new RuntimeException('No supported PlatformIO, ESP-IDF, or Arduino project was detected.');
     }
 
-    public static function workflow(string $framework, array $paths=[], string $source=''): string
+    public static function workflow(string $framework, array $paths=[], string $source='', array $additionalLibraries=[]): string
     {
         // Quote the trigger key and use an explicit empty mapping. This avoids YAML
         // 1.1 parsers treating `on` as a boolean and guarantees GitHub registers it.
@@ -146,10 +146,12 @@ YAML;
             'PCF8574.h'=>'PCF8574 library@2.3.7','Adafruit_PN532.h'=>'Adafruit PN532@1.3.4','ArduinoJson.h'=>$legacy?'ArduinoJson@6.18.0':'ArduinoJson@7.4.2',
             'TFT_eSPI.h'=>'TFT_eSPI@2.5.43',
             'XPT2046_Touchscreen.h'=>'XPT2046_Touchscreen@1.4','RF24.h'=>'RF24@1.5.0','RCSwitch.h'=>'rc-switch@2.6.4',
-            'NimBLEDevice.h'=>'NimBLE-Arduino@1.4.2','ESP32Ping.h'=>'ESP32Ping@1.6','AsyncTCP.h'=>'AsyncTCP@3.4.8','ESPAsyncWebServer.h'=>'ESPAsyncWebServer@3.8.1','LinkedList.h'=>'LinkedList@1.3.3','SoftwareSerial.h'=>'EspSoftwareSerial@8.1.0','MicroNMEA.h'=>'MicroNMEA@2.0.6','IRremoteESP8266.h'=>'IRremoteESP8266@2.8.6','arduinoFFT.h'=>'arduinoFFT@1.6.2',
+            'NimBLEDevice.h'=>'NimBLE-Arduino@1.4.2','ESP32Ping.h'=>'ESP32Ping@1.6','AsyncTCP.h'=>'Async TCP@3.4.8','ESPAsyncWebServer.h'=>'ESP Async WebServer@3.8.1','LinkedList.h'=>'LinkedList@1.3.3','SoftwareSerial.h'=>'EspSoftwareSerial@8.1.0','MicroNMEA.h'=>'MicroNMEA@2.0.6','IRremoteESP8266.h'=>'IRremoteESP8266@2.8.6','arduinoFFT.h'=>'arduinoFFT@1.6.2',
             'Adafruit_NeoPixel.h'=>'Adafruit NeoPixel@1.15.1','JPEGDecoder.h'=>'JPEGDecoder@1.8.0','lvgl.h'=>'lv_arduino@3.0.0','Adafruit_I2CDevice.h'=>'Adafruit BusIO@1.15.0','Adafruit_MAX1704X.h'=>'Adafruit MAX1704X@1.0.2','Adafruit_TCA8418.h'=>'Adafruit TCA8418@1.0.2',
         ];
         $libraries=[]; foreach($map as $include=>$library) if(str_contains($source,$include)) $libraries[]=$library;
+        foreach($additionalLibraries as $library)if(is_string($library)&&preg_match('/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,99}@[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/',$library))$libraries[]=$library;
+        $resolved=[];foreach($libraries as $library){$name=strtolower(strstr($library,'@',true)?:$library);if(!isset($resolved[$name]))$resolved[$name]=$library;}$libraries=array_values($resolved);
         $install=$libraries ? implode("\n",array_map(fn($lib)=>'          arduino-cli lib install '.escapeshellarg($lib),$libraries)) : '          echo "No registry libraries detected"';
         $hasLocalLibraries=count(array_filter($paths,fn($p)=>str_starts_with(strtolower($p),'libraries/')&&str_ends_with(strtolower($p),'/library.properties')))>0;
         if($hasLocalLibraries)$install.="\n          mkdir -p \"\$HOME/Arduino/libraries\"\n          find Libraries -mindepth 2 -maxdepth 3 -type f -name library.properties -print0 | while IFS= read -r -d '' properties; do cp -R \"\$(dirname \"\$properties\")\" \"\$HOME/Arduino/libraries/\"; done";
