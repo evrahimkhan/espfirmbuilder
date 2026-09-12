@@ -3,6 +3,7 @@ require __DIR__ . '/../../src/bootstrap.php';
 $action = $_GET['action'] ?? 'session';
 function oauth_dashboard_error(string $message): never { $page=!empty($_SESSION['user'])?'dashboard.html':'index.html'; $fragment=$page==='dashboard.html'?'#settings':''; header('Location: ../'.$page.'?oauth_error='.rawurlencode($message).$fragment); exit; }
 function auth_landing_message(string $message): never { header('Location: ../index.html?auth_message='.rawurlencode($message)); exit; }
+function oauth_json_request(string $url,array $headers,array $form=[]): array { $raw='';$overflow=false;$max=1024*1024;$ch=curl_init($url);$options=[CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>20,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use(&$raw,&$overflow,$max):int{if(strlen($raw)+strlen($chunk)>$max){$overflow=true;return 0;}$raw.=$chunk;return strlen($chunk);}];if($form){$options[CURLOPT_POST]=true;$options[CURLOPT_POSTFIELDS]=http_build_query($form,'','&',PHP_QUERY_RFC3986);}curl_setopt_array($ch,$options);$ok=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);$error=curl_error($ch);curl_close($ch);$payload=json_decode($raw?:'[]',true);if($ok===false||$overflow||$status<200||$status>=300||!is_array($payload)){throw new RuntimeException($overflow?'OAuth response exceeded the safety limit.':($error!==''?$error:'OAuth provider returned HTTP '.$status),$status);}return $payload; }
 function send_verification_email(array $record): bool { global $config; $from=(string)($config['mail']['from']??''); if(!filter_var($from,FILTER_VALIDATE_EMAIL)) return false; $token=bin2hex(random_bytes(32));$hash=hash('sha256',$token);db()->prepare('DELETE FROM email_verification_tokens WHERE user_id=? OR expires_at<NOW()')->execute([$record['id']]);db()->prepare('INSERT INTO email_verification_tokens(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))')->execute([$record['id'],$hash]);$link=rtrim((string)$config['app']['url'],'/').'/api/auth.php?action=verify_email&token='.rawurlencode($token);$name=preg_replace('/[\r\n]+/',' ',(string)$record['name']);$text="Hello {$name},\n\nVerify your ESPForge email within 24 hours:\n{$link}\n\nIf you did not create this account, ignore this email.";return @mail((string)$record['email'],'Verify your ESPForge email',$text,['From'=>$from,'Content-Type'=>'text/plain; charset=UTF-8']); }
 
 if ($action === 'session') { if(!empty($_SESSION['user'])) require_user(); json_response(['user' => $_SESSION['user'] ?? null, 'csrf' => csrf()]); }
@@ -105,15 +106,9 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
     $tokenUrl = $provider === 'github' ? 'https://github.com/login/oauth/access_token' : 'https://oauth2.googleapis.com/token';
     $payload = ['client_id'=>$config[$provider]['client_id'], 'client_secret'=>$config[$provider]['client_secret'], 'code'=>$_GET['code'], 'redirect_uri'=>$config[$provider]['redirect_uri']];
     if ($provider === 'google') $payload['grant_type'] = 'authorization_code';
-    $ch=curl_init($tokenUrl); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>http_build_query($payload),CURLOPT_HTTPHEADER=>['Accept: application/json'],CURLOPT_TIMEOUT=>20]);
-    $tokenResponse=curl_exec($ch); $curlError=curl_error($ch); $tokenStatus=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); curl_close($ch);
-    if($tokenResponse===false){ error_log('ESPForge OAuth connection failed: '.($curlError?:'outbound request failed')); oauth_dashboard_error('The OAuth provider could not be reached. Please try again shortly.'); }
-    $tokenData=json_decode($tokenResponse,true)?:[]; $token=$tokenData['access_token']??null;
-    if(!$token){
-        $detail=$tokenData['error_description']??$tokenData['error']??('Provider returned HTTP '.$tokenStatus);
-        error_log('ESPForge OAuth token exchange failed for '.$provider.': '.$detail);
-        oauth_dashboard_error('The OAuth provider rejected the authorization request. Please connect again.');
-    }
+    try{$tokenData=oauth_json_request($tokenUrl,['Accept: application/json'],$payload);}catch(RuntimeException $error){error_log('ESPForge OAuth token exchange failed for '.$provider.': '.$error->getMessage());oauth_dashboard_error('The OAuth provider rejected the authorization request. Please connect again.');}
+    $token=$tokenData['access_token']??null;
+    if(!is_string($token)||$token==='') oauth_dashboard_error('The OAuth provider did not return a usable access credential. Please connect again.');
     if($provider==='github'){
         $granted=array_filter(preg_split('/[\s,]+/',strtolower((string)($tokenData['scope']??''))));
         if(!in_array('repo',$granted,true) || !in_array('workflow',$granted,true)){
@@ -121,11 +116,10 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         }
     }
     $api=$provider==='github'?'https://api.github.com/user':'https://openidconnect.googleapis.com/v1/userinfo';
-    $ch=curl_init($api); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Accept: application/json','User-Agent: ESPForge'],CURLOPT_TIMEOUT=>20]); $profile=json_decode(curl_exec($ch)?:'[]',true); curl_close($ch);
+    try{$profile=oauth_json_request($api,['Authorization: Bearer '.$token,'Accept: application/json','User-Agent: ESPForge']);}catch(RuntimeException $error){error_log('ESPForge OAuth profile request failed for '.$provider.': '.$error->getMessage());oauth_dashboard_error('The OAuth provider profile could not be loaded. Please connect again.');}
     $providerId=(string)($profile['id']??$profile['sub']??''); $email=$profile['email']??null;
     if($provider==='github' && !$email){
-        $ch=curl_init('https://api.github.com/user/emails'); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token,'Accept: application/vnd.github+json','User-Agent: ESPForge'],CURLOPT_TIMEOUT=>20]);
-        $emailResponse=curl_exec($ch); $emailStatus=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); curl_close($ch); $emails=json_decode($emailResponse?:'[]',true);
+        try{$emails=oauth_json_request('https://api.github.com/user/emails',['Authorization: Bearer '.$token,'Accept: application/vnd.github+json','User-Agent: ESPForge']);}catch(RuntimeException $error){$emails=[];error_log('ESPForge GitHub email lookup failed: '.$error->getMessage());}
         if(is_array($emails)){
             foreach($emails as $item) if(is_array($item)&&!empty($item['primary'])&&!empty($item['verified'])&&!empty($item['email'])){$email=$item['email'];break;}
             if(!$email) foreach($emails as $item) if(is_array($item)&&!empty($item['verified'])&&!empty($item['email'])){$email=$item['email'];break;}
@@ -133,7 +127,7 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         // GitHub accounts may deliberately expose no email. The stable, provider-scoped
         // noreply address lets OAuth login proceed without inventing personal information.
         if(!$email && !empty($profile['login']) && $providerId) $email=$providerId.'+'.preg_replace('/[^A-Za-z0-9-]/','',$profile['login']).'@users.noreply.github.com';
-        if(!$email) error_log('ESPForge GitHub email lookup failed with HTTP '.$emailStatus);
+        if(!$email) error_log('ESPForge GitHub account has no usable verified email; using a provider-scoped noreply identity when possible.');
     }
     $email=is_string($email)?filter_var($email,FILTER_VALIDATE_EMAIL):false;
     if(!$providerId||!$email||strlen($email)>255) oauth_dashboard_error('The provider did not return a verified, usable account identity.');
