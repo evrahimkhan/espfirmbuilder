@@ -169,14 +169,10 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
             if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); }
             $sql.=' WHERE id=?'; $values[]=$id; db()->prepare($sql)->execute($values);
         } elseif($emailRecord){
-            $id=(int)$emailRecord['id']; $sessionEmail=$emailRecord['email'];
-            $linkedProviderId=(string)($emailRecord[$idColumn]??'');
-            if($linkedProviderId!=='' && !hash_equals($linkedProviderId,$providerId)){
-                oauth_dashboard_error('An ESPForge account with this email is already connected to a different '.ucfirst($provider).' identity. Existing accounts cannot be replaced.');
-            }
-            $sql="UPDATE users SET {$idColumn}=?, name=?"; $values=[$providerId,$name];
-            if($provider==='github'){ $sql.=', github_token=?'; $values[]=encrypt_secret($token); }
-            $sql.=' WHERE id=?'; $values[]=$id; db()->prepare($sql)->execute($values);
+            // Matching email is not proof that this provider identity owns the
+            // existing ESPForge workspace. Require the workspace owner to sign in
+            // first and deliberately link from Settings; never merge on login.
+            oauth_dashboard_error('An ESPForge account already uses this email. Sign in to that workspace first, then connect '.ucfirst($provider).' from Settings. Accounts are never merged automatically.');
         } else {
             $githubToken=$provider==='github'?encrypt_secret($token):null;
             $q=db()->prepare("INSERT INTO users(email,name,{$idColumn},github_token) VALUES(?,?,?,?)");
