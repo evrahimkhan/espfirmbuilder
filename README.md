@@ -37,7 +37,7 @@ GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 MAIL_FROM
 ```
 
-Never deploy with the example `APP_KEY`. Register the exact callback URLs shown in `config/config.php` with GitHub and Google. Connecting a repository inspects its Git tree, commits `.github/workflows/espforge-build.yml`, and later dispatches that workflow. Build links currently open the corresponding GitHub run, where artifacts can be downloaded. Repository analysis is deterministic by default; stored AI keys are ready for an optional model-assisted analyzer for non-standard layouts.
+Never deploy with the example `APP_KEY`. To rotate it, set the new `APP_KEY`, retain old keys temporarily in `APP_PREVIOUS_KEYS`, run `php bin/rotate-secrets.php`, verify sign-in/settings, and only then remove the previous keys. Register the exact callback URLs shown in `config/config.php` with GitHub and Google. Connecting a repository inspects its Git tree, commits `.github/workflows/espforge-build.yml`, and later dispatches that workflow. Build links currently open the corresponding GitHub run, where artifacts can be downloaded. Repository analysis is deterministic by default; stored AI keys are ready for an optional model-assisted analyzer for non-standard layouts.
 
 ## alwaysdata deployment
 

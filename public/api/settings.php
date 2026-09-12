@@ -21,7 +21,8 @@ if (($data['action'] ?? '') === 'remove_ai_key') {
     json_response(['ok'=>true,'message'=>'AI API key removed from this account.']);
 }
 if ($key !== '') {
-    $fingerprint=ai_key_fingerprint($key); $q=db()->prepare('SELECT id FROM users WHERE ai_key_fingerprint=? AND id<>? LIMIT 1'); $q->execute([$fingerprint,$user['id']]);
+    $candidateFingerprints=ai_key_fingerprints($key);$placeholders=implode(',',array_fill(0,count($candidateFingerprints),'?'));
+    $q=db()->prepare("SELECT id FROM users WHERE ai_key_fingerprint IN ({$placeholders}) AND id<>? LIMIT 1");$q->execute([...$candidateFingerprints,$user['id']]);
     if($q->fetch()) json_response(['error'=>'This API key is already bound to another ESPForge account. Use a different API key.'],409);
 }
 if (($data['action'] ?? '') === 'test_ai_key') {
@@ -62,8 +63,8 @@ if (($data['action'] ?? '') === 'test_ai_key') {
     json_response(['ok'=>true,'valid'=>true,'message'=>($provider === 'google' ? 'Google Gemini' : 'OpenRouter').' API key is valid for this account.']);
 }
 if ($key !== '') {
-    $current=user_record((int)$user['id']); $currentFingerprint=(string)($current['ai_key_fingerprint']??'');
-    if($currentFingerprint!==''&&!hash_equals($currentFingerprint,ai_key_fingerprint($key))) json_response(['error'=>'Remove the currently bound API key before saving a different key.'],409);
+    $current=user_record((int)$user['id']); $currentFingerprint=(string)($current['ai_key_fingerprint']??'');$candidateFingerprints=ai_key_fingerprints($key);
+    if($currentFingerprint!==''&&!in_array($currentFingerprint,$candidateFingerprints,true)) json_response(['error'=>'Remove the currently bound API key before saving a different key.'],409);
     $q = db()->prepare('UPDATE users SET ai_provider=?, ai_api_key=?, ai_key_fingerprint=? WHERE id=?');
     $q->execute([$provider, encrypt_secret($key), ai_key_fingerprint($key), $user['id']]);
 } elseif ($provider !== null) {
