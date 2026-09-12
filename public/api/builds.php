@@ -105,6 +105,9 @@ try {
  } else {
      $source=$targetFramework==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
      $workflow=WorkflowEngine::workflow($targetFramework,$paths,$source);
+     if($targetFramework==='arduino'&&!empty($target['core_version']))$workflow=preg_replace('/esp32:esp32@[0-9]+\.[0-9]+\.[0-9]+/','esp32:esp32@'.$target['core_version'],$workflow)??$workflow;
+     if($targetFramework==='arduino'&&!empty($target['nimble_version']))$workflow=preg_replace('/NimBLE-Arduino@[0-9]+\.[0-9]+\.[0-9]+/','NimBLE-Arduino@'.$target['nimble_version'],$workflow)??$workflow;
+     if($targetFramework==='arduino'&&!empty($target['tft_setup'])){$setup=escapeshellarg((string)$target['tft_setup']);$tftStep="      - name: Configure display for selected hardware\n        run: cp {$setup} \"\$HOME/Arduino/libraries/TFT_eSPI/User_Setup.h\"\n";$workflow=str_replace('      - name: Compile firmware',$tftStep.'      - name: Compile firmware',$workflow);}
      if(in_array($target['type'],['platformio','platformio_disabled'],true)) $workflow=str_replace('run: pio run','run: pio run -e '.escapeshellarg($target['environment']),$workflow);
      if(in_array($target['type'],['arduino','arduino_define'],true)&&!empty($target['fqbn'])){
          $replacement='--fqbn "'.$target['fqbn'].'"';

@@ -20,7 +20,11 @@ final class TargetAnalyzer
                     // Treat repository matrices only as hardware metadata. Generate a
                     // fresh compile-only workflow instead of executing publishing or
                     // token-enabled repository workflow steps.
-                    $targets[]=['id'=>$flag,'name'=>$match[1],'type'=>'arduino','fqbn'=>$match[3],'flag'=>$flag,'build_flags'=>'-D'.$flag,'source'=>'workflow_metadata'];
+                    $target=['id'=>$flag,'name'=>$match[1],'type'=>'arduino','fqbn'=>$match[3],'flag'=>$flag,'build_flags'=>'-D'.$flag,'source'=>'workflow_metadata'];
+                    if(preg_match('/\bidf_ver:\s*"([0-9]+\.[0-9]+\.[0-9]+)"/',$line,$version))$target['core_version']=$version[1];
+                    if(preg_match('/\bnimble_ver:\s*"([0-9]+\.[0-9]+\.[0-9]+)"/',$line,$version))$target['nimble_version']=$version[1];
+                    if(preg_match('/\btft_file:\s*"([A-Za-z0-9_.-]+\.h)"/',$line,$setup))$target['tft_setup']=$setup[1];
+                    $targets[]=$target;
                     continue;
                 }
                 // ESP-IDF repositories commonly pair each board with its chip and
