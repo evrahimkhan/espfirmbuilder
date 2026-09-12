@@ -45,6 +45,8 @@ Edit `~/espforge/config/config.local.php` and set:
 - Generated encryption key
 - GitHub OAuth client ID and secret
 - Google OAuth client ID and secret
+- `app.env` set to `production`
+- A valid `mail.from` address for verification and password recovery
 
 The DSN format is:
 
@@ -64,6 +66,15 @@ mysql -h mysql-ACCOUNT.alwaysdata.net \
 ```
 
 Alternatively, open **Databases > MySQL > phpMyAdmin**, select the database, and import `database/schema.sql`.
+
+For an existing installation, do not re-import `schema.sql`. Back up MySQL and apply each unapplied file in `database/migrations/` in filename order **before** pulling PHP code that depends on it:
+
+```bash
+mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_001_hardening.sql
+mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_002_audit_events.sql
+mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_003_password_recovery.sql
+mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_004_email_verification.sql
+```
 
 ## 5. Create the PHP site
 

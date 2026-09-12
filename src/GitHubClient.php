@@ -14,29 +14,33 @@ final class GitHubClient
             'User-Agent: ESPForge',
             'X-GitHub-Api-Version: 2022-11-28',
         ];
-        $ch = curl_init($url);
+        $ch = curl_init($url); $response=''; $overflow=false; $maxBytes=15*1024*1024;
         curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_WRITEFUNCTION => static function($curl,string $chunk)use(&$response,&$overflow,$maxBytes):int {
+                if(strlen($response)+strlen($chunk)>$maxBytes){$overflow=true;return 0;}
+                $response.=$chunk; return strlen($chunk);
+            },
         ]);
         if ($payload !== null) {
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_SLASHES));
             $headers[] = 'Content-Type: application/json';
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         }
-        $response = curl_exec($ch);
+        $ok = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $error = curl_error($ch);
         curl_close($ch);
-        if ($response === false || $error) throw new RuntimeException('GitHub request failed: ' . $error);
+        if ($ok === false || $error) throw new RuntimeException($overflow?'GitHub response exceeded the safety limit.':'GitHub request failed: ' . $error);
         if ($status === 204) return [];
         $decoded = json_decode($response, true);
         if ($status < 200 || $status >= 300) {
-            $message = is_array($decoded) ? ($decoded['message'] ?? 'Unknown GitHub error') : $response;
-            throw new RuntimeException("GitHub API returned {$status}: {$message}", $status);
+            $message = is_array($decoded) ? ($decoded['message'] ?? 'Unknown GitHub error') : 'Unexpected response';
+            throw new RuntimeException("GitHub API returned {$status}: ".substr((string)$message,0,500), $status);
         }
         return $raw ? $response : (is_array($decoded) ? $decoded : []);
     }

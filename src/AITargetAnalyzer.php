@@ -28,8 +28,8 @@ PROMPT;
 
     private function gemini(string $prompt): string
     {
-        $url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='.rawurlencode($this->apiKey);
-        $response=$this->post($url,['contents'=>[['parts'=>[['text'=>$prompt]]]],'generationConfig'=>['responseMimeType'=>'application/json','temperature'=>0.1]]);
+        $url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+        $response=$this->post($url,['contents'=>[['parts'=>[['text'=>$prompt]]]],'generationConfig'=>['responseMimeType'=>'application/json','temperature'=>0.1]],['x-goog-api-key: '.$this->apiKey]);
         return (string)($response['candidates'][0]['content']['parts'][0]['text']??'');
     }
 
@@ -41,13 +41,13 @@ PROMPT;
 
     private function post(string $url,array $payload,array $extraHeaders=[]): array
     {
-        $ch=curl_init($url); $headers=array_merge(['Content-Type: application/json','Accept: application/json'],$extraHeaders);
-        curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($payload),CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>60]);
-        $raw=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); $error=curl_error($ch); curl_close($ch);
+        $ch=curl_init($url); $headers=array_merge(['Content-Type: application/json','Accept: application/json'],$extraHeaders);$raw='';$maxBytes=2*1024*1024;
+        curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($payload,JSON_THROW_ON_ERROR),CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>60,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use(&$raw,$maxBytes):int{if(strlen($raw)+strlen($chunk)>$maxBytes)return 0;$raw.=$chunk;return strlen($chunk);}]);
+        $ok=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); $error=curl_error($ch); curl_close($ch);
         $decoded=json_decode($raw?:'[]',true);
-        if($raw===false||$status<200||$status>=300){
-            $detail=$decoded['error']['message']??($error!==''?$error:'HTTP '.$status);
-            throw new RuntimeException('AI target analysis failed: '.$detail,502);
+        if($ok===false||$status<200||$status>=300){
+            $detail=(string)($decoded['error']['message']??($error!==''?$error:'HTTP '.$status));error_log('ESPForge AI provider error: '.substr($detail,0,500));
+            throw new RuntimeException('The AI provider could not complete target analysis.',502);
         }
         return is_array($decoded)?$decoded:[];
     }
