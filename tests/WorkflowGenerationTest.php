@@ -17,7 +17,7 @@ if(!str_contains($workflows[0],'platformio==6.1.19')){fwrite(STDERR,"PlatformIO 
 if(!str_contains($workflows[0],'python-version: "3.12"')){fwrite(STDERR,"PlatformIO Python is not pinned.\n");exit(1);}
 if(!str_contains($workflows[2],'376428d7d45be640c00812a71612e1742edc2f5f9ee3742a2d6da7870e079588')){fwrite(STDERR,"Arduino CLI checksum is missing.\n");exit(1);}
 $asyncWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'#include <AsyncTCP.h>');
-if(!str_contains($asyncWorkflow,"'Async TCP@3.4.8'")){fwrite(STDERR,"Async TCP does not use its Arduino Library Manager name.\n");exit(1);}
+if(!str_contains($asyncWorkflow,'b2e5f4f368b137442f66a9ba7242b8759e6aef59')){fwrite(STDERR,"AsyncTCP is not installed from its pinned upstream commit.\n");exit(1);}
 $jsonWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'#include <ArduinoJson.h>');
 if(!str_contains($jsonWorkflow,"'ArduinoJson@6.18.2'")){fwrite(STDERR,"ArduinoJson compatibility pin is missing.\n");exit(1);}
 $multiSketch=WorkflowEngine::workflow('arduino',['TestFile.ino','esp32_marauder/esp32_marauder.ino','examples/Demo/Demo.ino'],'');

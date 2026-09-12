@@ -146,13 +146,20 @@ YAML;
             'PCF8574.h'=>'PCF8574 library@2.3.7','Adafruit_PN532.h'=>'Adafruit PN532@1.3.4','ArduinoJson.h'=>'ArduinoJson@6.18.2',
             'TFT_eSPI.h'=>'TFT_eSPI@2.5.43',
             'XPT2046_Touchscreen.h'=>'XPT2046_Touchscreen@1.4','RF24.h'=>'RF24@1.5.0','RCSwitch.h'=>'rc-switch@2.6.4',
-            'NimBLEDevice.h'=>'NimBLE-Arduino@1.4.2','ESP32Ping.h'=>'ESP32Ping@1.6','AsyncTCP.h'=>'Async TCP@3.4.8','ESPAsyncWebServer.h'=>'ESP Async WebServer@3.8.1','LinkedList.h'=>'LinkedList@1.3.3','SoftwareSerial.h'=>'EspSoftwareSerial@8.1.0','MicroNMEA.h'=>'MicroNMEA@2.0.6','IRremoteESP8266.h'=>'IRremoteESP8266@2.8.6','arduinoFFT.h'=>'arduinoFFT@1.6.2',
+            'NimBLEDevice.h'=>'NimBLE-Arduino@1.4.2','LinkedList.h'=>'LinkedList@1.3.3','SoftwareSerial.h'=>'EspSoftwareSerial@8.1.0','MicroNMEA.h'=>'MicroNMEA@2.0.6','IRremoteESP8266.h'=>'IRremoteESP8266@2.8.6','arduinoFFT.h'=>'arduinoFFT@1.6.2',
             'Adafruit_NeoPixel.h'=>'Adafruit NeoPixel@1.15.1','JPEGDecoder.h'=>'JPEGDecoder@1.8.0','lvgl.h'=>'lv_arduino@3.0.0','Adafruit_I2CDevice.h'=>'Adafruit BusIO@1.15.0','Adafruit_MAX1704X.h'=>'Adafruit MAX1704X@1.0.2','Adafruit_TCA8418.h'=>'Adafruit TCA8418@1.0.2',
         ];
+        $gitMap=[
+            'ESP32Ping.h'=>['marian-craciunescu/ESP32Ping','aadac3c08f5e6f5062faf26ae1b17e566e22728c','ESP32Ping'],
+            'AsyncTCP.h'=>['ESP32Async/AsyncTCP','b2e5f4f368b137442f66a9ba7242b8759e6aef59','AsyncTCP'],
+            'ESPAsyncWebServer.h'=>['ESP32Async/ESPAsyncWebServer','4fc46e0c1b6ed559f7cd0c2548ed163a3e2b3412','ESPAsyncWebServer'],
+        ];
         $libraries=[]; foreach($map as $include=>$library) if(str_contains($source,$include)) $libraries[]=$library;
-        foreach($additionalLibraries as $library)if(is_string($library)&&preg_match('/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,99}@[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/',$library))$libraries[]=$library;
+        $gitProvided=['esp32ping','asynctcp','async tcp','espasyncwebserver','esp async webserver'];
+        foreach($additionalLibraries as $library)if(is_string($library)&&preg_match('/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,99}@[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/',$library)&&!in_array(strtolower((string)strstr($library,'@',true)),$gitProvided,true))$libraries[]=$library;
         $resolved=[];foreach($libraries as $library){$name=strtolower(strstr($library,'@',true)?:$library);if(!isset($resolved[$name]))$resolved[$name]=$library;}$libraries=array_values($resolved);
         $install=$libraries ? implode("\n",array_map(fn($lib)=>'          arduino-cli lib install '.escapeshellarg($lib),$libraries)) : '          echo "No registry libraries detected"';
+        foreach($gitMap as $include=>$dependency)if(str_contains($source,$include)){$repository=$dependency[0];$sha=$dependency[1];$name=$dependency[2];$install.="\n          rm -rf \"\$RUNNER_TEMP/espforge-{$name}\"\n          git init -q \"\$RUNNER_TEMP/espforge-{$name}\"\n          git -C \"\$RUNNER_TEMP/espforge-{$name}\" remote add origin https://github.com/{$repository}.git\n          git -C \"\$RUNNER_TEMP/espforge-{$name}\" fetch -q --depth=1 origin {$sha}\n          git -C \"\$RUNNER_TEMP/espforge-{$name}\" checkout -q --detach FETCH_HEAD\n          mkdir -p \"\$HOME/Arduino/libraries\"\n          cp -R \"\$RUNNER_TEMP/espforge-{$name}\" \"\$HOME/Arduino/libraries/{$name}\"";}
         $hasLocalLibraries=count(array_filter($paths,fn($p)=>str_starts_with(strtolower($p),'libraries/')&&str_ends_with(strtolower($p),'/library.properties')))>0;
         if($hasLocalLibraries||count(array_filter($paths,fn($p)=>str_contains(strtolower($p),'/libraries/')))>0)$install.="\n          mkdir -p \"\$HOME/Arduino/libraries\"\n          find . -mindepth 2 -maxdepth 7 -type f -name library.properties -not -path './.git/*' -print0 | while IFS= read -r -d '' properties; do cp -R \"\$(dirname \"\$properties\")\" \"\$HOME/Arduino/libraries/\"; done";
         $hasZips=count(array_filter($paths,fn($p)=>str_starts_with(strtolower($p),'libraries/')&&str_ends_with(strtolower($p),'.zip')))>0;
