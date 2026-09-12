@@ -14,27 +14,30 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
  }
  $q=db()->prepare('SELECT b.*,UNIX_TIMESTAMP(b.created_at) created_epoch,UNIX_TIMESTAMP(b.completed_at) completed_epoch,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? ORDER BY b.id DESC LIMIT 30'); $q->execute([$user['id']]);
  $builds=$q->fetchAll();
- if(($_GET['refresh']??'')==='1') try {
-  $client=new GitHubClient(github_token((int)$user['id']));
+ if(($_GET['refresh']??'')==='1' && time()-(int)($_SESSION['github_build_refresh']??0)>=5) try {
+  $_SESSION['github_build_refresh']=time();
+  $client=new GitHubClient(github_token((int)$user['id'])); $runsByRepository=[];
   foreach($builds as &$build){
-   if(in_array($build['status'],['queued','in_progress'],true)){
-    $runs=$client->request('GET','/repos/'.$build['full_name'].'/actions/workflows/espforge-build.yml/runs?per_page=20');
-    foreach($runs['workflow_runs']??[] as $run){
-     if(strtotime($run['created_at'])>=strtotime($build['created_at'])-10){
-      $build['github_run_id']=$run['id']; $build['status']=$run['status']; $build['conclusion']=$run['conclusion']; $build['artifact_url']=$run['html_url'];
-      $completedAt=$run['status']==='completed'?date('Y-m-d H:i:s'):null; $build['completed_at']=$completedAt; $build['completed_epoch']=$completedAt?time():null;
-      $q=db()->prepare('UPDATE builds SET github_run_id=?,status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?');
-      $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$completedAt,$build['id']]); break;
-     }
-    }
+   if(!in_array($build['status'],['queued','in_progress'],true)) continue;
+   $repository=$build['full_name'];
+   if(!array_key_exists($repository,$runsByRepository)){
+    $response=$client->request('GET','/repos/'.$repository.'/actions/workflows/espforge-build.yml/runs?per_page=50');
+    $runsByRepository[$repository]=$response['workflow_runs']??[];
    }
-   if(!empty($build['github_run_id']) && (in_array($build['status'],['queued','in_progress'],true) || $build===$builds[0])){
-    $jobs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/jobs?per_page=100');
-    $build['jobs']=array_map(fn($job)=>['name'=>$job['name']??'Build','status'=>$job['status']??'queued','conclusion'=>$job['conclusion']??null,'steps'=>array_map(fn($step)=>['name'=>$step['name']??'Step','status'=>$step['status']??'queued','conclusion'=>$step['conclusion']??null],$job['steps']??[])],$jobs['jobs']??[]);
+   foreach($runsByRepository[$repository] as $run){
+    $uuid=(string)($build['build_uuid']??'');
+    $runTitle=(string)($run['display_title']??$run['name']??'');
+    $matches=$uuid!=='' ? str_contains($runTitle,$uuid) : strtotime($run['created_at'])>=strtotime($build['created_at'])-10;
+    if(!$matches) continue;
+    $build['github_run_id']=$run['id']; $build['status']=$run['status']; $build['conclusion']=$run['conclusion']; $build['artifact_url']=$run['html_url'];
+    $completedAt=$run['status']==='completed'?date('Y-m-d H:i:s',strtotime($run['updated_at']??'now')):null;
+    $build['completed_at']=$completedAt; $build['completed_epoch']=$completedAt?strtotime($run['updated_at']??'now'):null;
+    $q=db()->prepare('UPDATE builds SET github_run_id=?,status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?');
+    $q->execute([$run['id'],$run['status'],$run['conclusion'],$run['html_url'],$completedAt,$build['id']]); break;
    }
   }
   unset($build);
- } catch(Throwable $ignored) {}
+ } catch(Throwable $error) { error_log('ESPForge build refresh failed: '.$error->getMessage()); }
  json_response(['builds'=>$builds]);
 }
 verify_csrf(); $data=body();
@@ -65,12 +68,12 @@ try {
  if(count($targets)>1 && $targetId==='') json_response(['error'=>'Select a hardware model before building.','code'=>'target_required','targets'=>$targets],422);
  $target=TargetAnalyzer::select($targets,$targetId!==''?$targetId:(string)$targets[0]['id']);
  if(!$target) json_response(['error'=>'The selected hardware model is invalid or no longer available.'],422);
- $inputs=[];
+ $buildUuid=uuid_v4(); $inputs=['espforge_build_uuid'=>$buildUuid];
  if($target['type']==='workflow_matrix'){
      $original=$github->file($repository['full_name'],$target['workflow_path'],$repository['default_branch']);
      if(!$original) throw new RuntimeException('The repository hardware workflow could not be read.',404);
      $workflow=TargetAnalyzer::filterMatrix($original,$target['flag'],$target['name'],$target['matrix_field']??'flag');
-     $inputs=str_contains($original,'create_release:')?['create_release'=>'false']:[];
+     if(str_contains($original,'create_release:')) $inputs['create_release']='false';
  } else {
      $source=$analysis['framework']==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
      $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
@@ -94,7 +97,9 @@ try {
  // Explicitly enable the generated workflow before dispatching it.
  try { $github->enableWorkflow($repository['full_name'],$workflowFile); }
  catch(RuntimeException $e){ if(!in_array($e->getCode(),[404,422],true)) throw $e; }
- $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs);
- $q=db()->prepare("INSERT INTO builds(repo_id,status,logs) VALUES(?,'queued',?)"); $q->execute([$repo,$buildMessage]); json_response(['id'=>(int)db()->lastInsertId(),'status'=>'queued','workflow'=>$workflowFile],202);
+ $q=db()->prepare("INSERT INTO builds(repo_id,build_uuid,status,logs) VALUES(?,?,'queued',?)"); $q->execute([$repo,$buildUuid,$buildMessage]); $buildId=(int)db()->lastInsertId();
+ try { $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs); }
+ catch(RuntimeException $dispatchError){ db()->prepare("UPDATE builds SET status='completed',conclusion='failure',completed_at=NOW(),logs=? WHERE id=?")->execute(['Dispatch failed: '.$dispatchError->getMessage(),$buildId]); throw $dispatchError; }
+ json_response(['id'=>$buildId,'status'=>'queued','workflow'=>$workflowFile],202);
 }
 catch(RuntimeException $e){ json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }

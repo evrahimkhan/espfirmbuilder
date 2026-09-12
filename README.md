@@ -31,7 +31,7 @@ php -S 0.0.0.0:8080 -t public
 Open `http://localhost:8080`. Configure settings through environment variables where possible:
 
 ```text
-APP_URL, APP_KEY, DB_DSN, DB_USER, DB_PASSWORD
+APP_URL, APP_ENV, APP_KEY, DB_DSN, DB_USER, DB_PASSWORD
 GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 ```
@@ -40,7 +40,7 @@ Never deploy with the example `APP_KEY`. Register the exact callback URLs shown 
 
 ## alwaysdata deployment
 
-Follow the complete [alwaysdata deployment guide](DEPLOY_ALWAYSdata.md). Production secrets belong in `config/config.local.php`, which is intentionally ignored by Git.
+Follow the complete [alwaysdata deployment guide](DEPLOY_ALWAYSdata.md). Production secrets belong in `config/config.local.php`, which is intentionally ignored by Git. Set `APP_ENV=production`. Apply every SQL file in `database/migrations/` in filename order during deployment before updating the PHP application; migrations are never executed from web requests.
 
 ## Shared hosting deployment
 

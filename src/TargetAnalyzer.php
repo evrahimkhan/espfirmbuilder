@@ -67,7 +67,31 @@ final class TargetAnalyzer
         }
         if(!$found) throw new RuntimeException('The selected hardware model is no longer present in the repository workflow.',409);
         $result=implode("\n",$lines);
-        return preg_replace('/^name:.*$/m','name: ESPForge · '.str_replace(["\r","\n"],' ',$name),$result,1)??$result;
+        $result=preg_replace('/^name:.*$/m','name: ESPForge · '.str_replace(["\r","\n"],' ',$name),$result,1)??$result;
+        return self::addBuildCorrelation($result);
+    }
+
+    private static function addBuildCorrelation(string $yaml): string
+    {
+        $expression='${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}';
+        if(!preg_match('/^run-name:/m',$yaml)) $yaml=preg_replace('/^(name:.*)$/m',"$1\nrun-name: ESPForge build {$expression}",$yaml,1)??$yaml;
+
+        // Existing matrix workflows vary widely. Add one dispatch input without
+        // touching their jobs, permissions, matrix, release flags, or other inputs.
+        if(preg_match('/^(\s*)workflow_dispatch:\s*\{\s*\}\s*$/m',$yaml,$match)){
+            $indent=$match[1];
+            $replacement=$indent."workflow_dispatch:\n".$indent."  inputs:\n".$indent."    espforge_build_uuid:\n".$indent."      description: Unique ESPForge build identifier\n".$indent."      required: true\n".$indent."      type: string";
+            $yaml=preg_replace('/^\s*workflow_dispatch:\s*\{\s*\}\s*$/m',$replacement,$yaml,1)??$yaml;
+        } elseif(!preg_match('/^\s+espforge_build_uuid:\s*$/m',$yaml) && preg_match('/^(\s*)workflow_dispatch:\s*\n\1  inputs:\s*$/m',$yaml,$match)) {
+            $indent=$match[1];
+            $insertion=$match[0]."\n".$indent."    espforge_build_uuid:\n".$indent."      description: Unique ESPForge build identifier\n".$indent."      required: true\n".$indent."      type: string";
+            $yaml=preg_replace('/^(\s*)workflow_dispatch:\s*\n\1  inputs:\s*$/m',$insertion,$yaml,1)??$yaml;
+        } elseif(!preg_match('/^\s+espforge_build_uuid:\s*$/m',$yaml) && preg_match('/^(\s*)workflow_dispatch:\s*$/m',$yaml,$match)) {
+            $indent=$match[1];
+            $insertion=$match[0]."\n".$indent."  inputs:\n".$indent."    espforge_build_uuid:\n".$indent."      description: Unique ESPForge build identifier\n".$indent."      required: true\n".$indent."      type: string";
+            $yaml=preg_replace('/^\s*workflow_dispatch:\s*$/m',$insertion,$yaml,1)??$yaml;
+        }
+        return $yaml;
     }
 
     public static function configurationStep(array $selected,array $targets): string

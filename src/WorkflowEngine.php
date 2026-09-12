@@ -16,7 +16,7 @@ final class WorkflowEngine
     {
         // Quote the trigger key and use an explicit empty mapping. This avoids YAML
         // 1.1 parsers treating `on` as a boolean and guarantees GitHub registers it.
-        $header="name: ESPForge firmware build\n\n\"on\":\n  workflow_dispatch: {}\n  repository_dispatch:\n    types: [espforge_build]\n\npermissions:\n  contents: read\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@v4\n";
+        $header="name: ESPForge firmware build\nrun-name: ESPForge build \${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n\n\"on\":\n  workflow_dispatch:\n    inputs:\n      espforge_build_uuid:\n        description: Unique ESPForge build identifier\n        required: true\n        type: string\n  repository_dispatch:\n    types: [espforge_build]\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: espforge-\${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n  cancel-in-progress: false\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@v4\n";
         if($framework==='platformio') return $header.<<<'YAML'
       - uses: actions/setup-python@v5
         with:
