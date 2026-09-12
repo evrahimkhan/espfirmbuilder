@@ -139,6 +139,16 @@ Then test:
 6. Start a build and open its GitHub Actions run.
 7. In Chrome or Edge, open **Web Flasher**, select a `.bin`, and connect an ESP32.
 
+## 8. Schedule privacy maintenance
+
+In alwaysdata's scheduled-jobs panel, run this command daily:
+
+```bash
+cd /home/ACCOUNT/espforge && php bin/prune-data.php
+```
+
+It removes expired recovery/verification tokens, audit events older than 180 days, flash metrics older than two years, and expired rate-limit files. The database cleanup is transactional and exits non-zero on failure.
+
 ## Operational notes
 
 - Firmware files selected in Web Flasher stay in the browser; they are not uploaded to alwaysdata.
