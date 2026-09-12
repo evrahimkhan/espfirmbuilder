@@ -1,11 +1,12 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 function archive_safety_error(string $path,int $maxEntryBytes=104857600): ?string {
- if(!class_exists('ZipArchive'))return null;$zip=new ZipArchive();if($zip->open($path)!==true)return 'Downloaded content is not a readable ZIP archive.';
+ $zip=new ZipArchive();if($zip->open($path)!==true)return 'Downloaded content is not a readable ZIP archive.';
  $total=0;if($zip->numFiles>2000){$zip->close();return 'Archive contains too many entries.';}
- for($index=0;$index<$zip->numFiles;$index++){$stat=$zip->statIndex($index);if(!$stat){$zip->close();return 'Archive metadata could not be read.';}$name=str_replace('\\','/',(string)($stat['name']??''));if(str_starts_with($name,'/')||preg_match('~^[A-Za-z]:/|(?:^|/)\.\.(?:/|$)|[\x00-\x1F\x7F]~',$name)){ $zip->close();return 'Archive contains an unsafe file path.';}if(str_ends_with($name,'/'))continue;$size=(int)($stat['size']??0);$compressed=max(1,(int)($stat['comp_size']??1));$total+=$size;if($size>$maxEntryBytes||$size/$compressed>100||$total>250*1024*1024){$zip->close();return 'Archive failed decompression safety limits.';}}
+ for($index=0;$index<$zip->numFiles;$index++){$stat=$zip->statIndex($index);if(!$stat){$zip->close();return 'Archive metadata could not be read.';}$name=str_replace('\\','/',(string)($stat['name']??''));$opsys=0;$attributes=0;if($zip->getExternalAttributesIndex($index,$opsys,$attributes)&&(($attributes>>16)&0170000)===0120000){$zip->close();return 'Archive contains a symbolic link.';}if(str_starts_with($name,'/')||preg_match('~^[A-Za-z]:/|(?:^|/)\.\.(?:/|$)|[\x00-\x1F\x7F]~',$name)){ $zip->close();return 'Archive contains an unsafe file path.';}if(str_ends_with($name,'/'))continue;$size=(int)($stat['size']??0);$compressed=max(1,(int)($stat['comp_size']??1));$total+=$size;if($size>$maxEntryBytes||$size/$compressed>100||$total>250*1024*1024){$zip->close();return 'Archive failed decompression safety limits.';}}
  $zip->close();return null;
 }
+if(!class_exists('ZipArchive')) json_response(['error'=>'Secure artifact inspection is unavailable on this server.'],503);
 $user=require_user();
 rate_limit('build-download',10,300);
 $id=(int)($_GET['build_id']??0); $kind=(string)($_GET['kind']??'artifact');

@@ -5,7 +5,7 @@ require __DIR__.'/../src/bootstrap.php';
 
 $failures=[];$warnings=[];
 foreach(['curl','openssl','pdo_mysql','json'] as $extension) if(!extension_loaded($extension)) $failures[]="Missing PHP extension: {$extension}";
-if(!class_exists('ZipArchive')) $warnings[]='PHP zip extension is unavailable; nested artifact ZIPs will not be unwrapped.';
+if(!class_exists('ZipArchive')) $failures[]='PHP zip extension is required for secure artifact validation.';
 if(!is_dir(sys_get_temp_dir())||!is_writable(sys_get_temp_dir())) $failures[]='PHP temporary directory is not writable.';
 if(!filter_var((string)($config['mail']['from']??''),FILTER_VALIDATE_EMAIL)) $failures[]='MAIL_FROM/mail.from is not a valid email address.';
 if(($config['app']['env']??'')!=='production') $warnings[]='APP_ENV is not production.';
