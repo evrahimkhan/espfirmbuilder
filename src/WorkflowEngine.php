@@ -98,11 +98,11 @@ YAML;
         $legacy=count(array_filter($paths,fn($p)=>strtolower($p)==='libraries/platform.txt'))>0;
         $isEsp32S3=preg_match('/^\s*#\s*define\s+BOARD_ESP32_DIV_V2\b/m',$source)===1 || preg_match('/\bESP32[-_ ]?S3\b/i',$source)===1;
         $map=[
-            'PCF8574.h'=>'PCF8574 library','Adafruit_PN532.h'=>'Adafruit PN532','ArduinoJson.h'=>$legacy?'ArduinoJson@6.18.0':'ArduinoJson',
-            'TFT_eSPI.h'=>$isEsp32S3?'TFT_eSPI@2.5.43':'TFT_eSPI',
-            'XPT2046_Touchscreen.h'=>'XPT2046_Touchscreen','RF24.h'=>'RF24','RCSwitch.h'=>'rc-switch',
-            'NimBLEDevice.h'=>'NimBLE-Arduino@1.4.2','IRremoteESP8266.h'=>'IRremoteESP8266','arduinoFFT.h'=>'arduinoFFT@1.6.2',
-            'Adafruit_NeoPixel.h'=>'Adafruit NeoPixel',
+            'PCF8574.h'=>'PCF8574 library@2.3.7','Adafruit_PN532.h'=>'Adafruit PN532@1.3.4','ArduinoJson.h'=>$legacy?'ArduinoJson@6.18.0':'ArduinoJson@7.4.2',
+            'TFT_eSPI.h'=>'TFT_eSPI@2.5.43',
+            'XPT2046_Touchscreen.h'=>'XPT2046_Touchscreen@1.4','RF24.h'=>'RF24@1.5.0','RCSwitch.h'=>'rc-switch@2.6.4',
+            'NimBLEDevice.h'=>'NimBLE-Arduino@1.4.2','IRremoteESP8266.h'=>'IRremoteESP8266@2.8.6','arduinoFFT.h'=>'arduinoFFT@1.6.2',
+            'Adafruit_NeoPixel.h'=>'Adafruit NeoPixel@1.15.1',
         ];
         $libraries=[]; foreach($map as $include=>$library) if(str_contains($source,$include)) $libraries[]=$library;
         $install=$libraries ? implode("\n",array_map(fn($lib)=>'          arduino-cli lib install '.escapeshellarg($lib),$libraries)) : '          echo "No registry libraries detected"';
@@ -123,9 +123,9 @@ YAML;
           python-version: "3.11"
       - name: Install Arduino CLI
         run: |
-          python -m pip install --disable-pip-version-check pyserial
+          python -m pip install --disable-pip-version-check pyserial==3.5
           curl --proto '=https' --tlsv1.2 -fsSLo arduino-cli.tar.gz https://github.com/arduino/arduino-cli/releases/download/v1.3.1/arduino-cli_1.3.1_Linux_64bit.tar.gz
-          test "$(stat -c%s arduino-cli.tar.gz)" -gt 10000000
+          echo "376428d7d45be640c00812a71612e1742edc2f5f9ee3742a2d6da7870e079588  arduino-cli.tar.gz" | sha256sum --check --strict
           mkdir -p bin && tar -xzf arduino-cli.tar.gz -C bin arduino-cli
           echo "\$PWD/bin" >> "\$GITHUB_PATH"
       - name: Install ESP32 core

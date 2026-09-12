@@ -20,6 +20,7 @@ jobs:
         run: |
           php tests/TargetAnalyzerParserTest.php
           php tests/WorkflowSafetyTest.php
+          php tests/WorkflowGenerationTest.php
       - name: JavaScript syntax
         run: |
           node --check public/assets/app.js
