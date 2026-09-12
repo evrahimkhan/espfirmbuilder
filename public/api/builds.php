@@ -129,7 +129,7 @@ try {
  try { $github->enableWorkflow($repository['full_name'],$workflowFile); }
  catch(RuntimeException $e){ if(!in_array($e->getCode(),[404,422],true)) throw $e; }
  $q=db()->prepare("INSERT INTO builds(repo_id,build_uuid,status,logs) VALUES(?,?,'queued',?)"); $q->execute([$repo,$buildUuid,$buildMessage]); $buildId=(int)db()->lastInsertId();
- try { $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs); }
+ try { $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs,$target['type']!=='workflow_matrix'); }
  catch(RuntimeException $dispatchError){ db()->prepare("UPDATE builds SET status='completed',conclusion='failure',completed_at=NOW(),logs=? WHERE id=?")->execute(['Dispatch failed: '.$dispatchError->getMessage(),$buildId]); throw $dispatchError; }
  audit_event('build.dispatched',['build_id'=>$buildId,'repository'=>$repository['full_name'],'target'=>$target['id']??$target['name'],'uuid'=>$buildUuid]);
  json_response(['id'=>$buildId,'status'=>'queued','workflow'=>$workflowFile],202);

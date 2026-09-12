@@ -66,7 +66,7 @@ if($kind==='artifact'&&class_exists('ZipArchive')){
   $zip->close();
  }
 }
-$filename=preg_replace('/[^A-Za-z0-9_.-]/','_',$filename)?:'espforge-download.zip';$size=filesize($outputPath);
+$filename=preg_replace('/[^A-Za-z0-9_.-]/','_',$filename)?:'espforge-download.zip';$size=filesize($outputPath);audit_event('build.download_started',['build_id'=>$id,'kind'=>$kind,'size'=>$size]);
 header('Content-Type: application/zip');header('Content-Disposition: attachment; filename="'.$filename.'"');header('Content-Length: '.$size);header('Cache-Control: private, no-store');header('X-Content-Type-Options: nosniff');
 $stream=fopen($outputPath,'rb');if($stream!==false){while(!feof($stream)){echo fread($stream,1024*1024);flush();}fclose($stream);}
 if($outputPath!==$temporary)@unlink($outputPath);@unlink($temporary);

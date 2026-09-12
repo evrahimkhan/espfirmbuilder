@@ -130,7 +130,7 @@ final class GitHubClient
         $this->request('PUT', "/repos/{$fullName}/actions/workflows/" . rawurlencode($workflow) . '/enable');
     }
 
-    public function dispatch(string $fullName, string $workflow, string $branch, array $inputs = []): void
+    public function dispatch(string $fullName, string $workflow, string $branch, array $inputs = [], bool $repositoryFallback = true): void
     {
         $payload=['ref'=>$branch];
         if($inputs) $payload['inputs']=$inputs;
@@ -154,7 +154,7 @@ final class GitHubClient
         // Some forks keep returning a stale workflow_dispatch capability even after
         // the workflow is updated. Generated ESPForge workflows also listen for this
         // repository event, which uses a separate and more reliable GitHub endpoint.
-        if($lastError?->getCode()===422){
+        if($repositoryFallback && $lastError?->getCode()===422){
             $event=['event_type'=>'espforge_build'];
             if($inputs) $event['client_payload']=$inputs;
             $this->request('POST',"/repos/{$fullName}/dispatches",$event);
