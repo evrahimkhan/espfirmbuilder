@@ -55,6 +55,36 @@ YAML;
         return $header.self::arduinoSteps($paths,$source);
     }
 
+    public static function artifactNamingStep(string $targetName): string
+    {
+        $prefix=trim(preg_replace('/[^A-Za-z0-9_.-]+/','-',$targetName)??'','.-');if($prefix==='')$prefix='firmware';$prefix=substr($prefix,0,80);
+        return <<<YAML
+      - name: Name firmware files for selected hardware
+        env:
+          ESPFORGE_ARTIFACT_PREFIX: "{$prefix}"
+        run: |
+          python - <<'PY'
+          import os, pathlib
+          root = pathlib.Path("firmware-output")
+          prefix = os.environ["ESPFORGE_ARTIFACT_PREFIX"]
+          suffixes = [".bootloader.bin", ".partitions.bin", ".merged.bin", ".bin", ".elf", ".map"]
+          for path in [item for item in root.rglob("*") if item.is_file()]:
+              suffix = next((item for item in suffixes if path.name.endswith(item)), None)
+              filename = prefix + suffix if suffix else prefix + "-" + path.name
+              destination, counter = root / filename, 2
+              while destination.exists() and destination != path:
+                  destination = root / f"{prefix}-{counter}{suffix or '-' + path.name}"
+                  counter += 1
+              if destination != path:
+                  path.replace(destination)
+          for directory in sorted([item for item in root.rglob("*") if item.is_dir()], reverse=True):
+              try: directory.rmdir()
+              except OSError: pass
+          PY
+
+YAML;
+    }
+
     public static function manifestStep(string $framework,string $chip): string
     {
         $framework=preg_replace('/[^a-z0-9_-]/i','',$framework)?:'unknown';
@@ -96,6 +126,11 @@ YAML;
     private static function arduinoSteps(array $paths,string $source): string
     {
         $legacy=count(array_filter($paths,fn($p)=>strtolower($p)==='libraries/platform.txt'))>0;
+        $sketches=array_values(array_filter($paths,fn($path)=>preg_match('/\.ino$/i',(string)$path)));
+        if(!$sketches)throw new RuntimeException('No Arduino sketch (.ino) was found for this build.',422);
+        usort($sketches,static function(string $left,string $right):int{
+            $score=static function(string $path):int{$lower=strtolower($path);$directory=dirname($path);$stem=pathinfo($path,PATHINFO_FILENAME);$score=substr_count($path,'/')*10;if(preg_match('~(?:^|/)(?:test|tests|testing|example|examples|demo|demos)(?:/|$)|(?:test|example|demo)[^/]*\.ino$~i',$path))$score+=1000;if($directory!=='.'&&strcasecmp(basename($directory),$stem)===0)$score-=200;if(preg_match('/(?:firmware|marauder|main)/',$lower))$score-=40;return $score;};return $score($left)<=>$score($right)?:strcasecmp($left,$right);});
+        $sketchDirectory=escapeshellarg(dirname($sketches[0])==='.'?'.':dirname($sketches[0]));
         $isEsp32S3=preg_match('/^\s*#\s*define\s+BOARD_ESP32_DIV_V2\b/m',$source)===1 || preg_match('/\bESP32[-_ ]?S3\b/i',$source)===1;
         $map=[
             'PCF8574.h'=>'PCF8574 library@2.3.7','Adafruit_PN532.h'=>'Adafruit PN532@1.3.4','ArduinoJson.h'=>$legacy?'ArduinoJson@6.18.0':'ArduinoJson@7.4.2',
@@ -140,7 +175,7 @@ YAML;
         run: |
 {$install}
       - name: Compile firmware
-        run: arduino-cli compile --fqbn "{$fqbn}" --output-dir firmware-output "\$(dirname "\$(find . -name '*.ino' -print -quit)")"
+        run: arduino-cli compile --fqbn "{$fqbn}" --output-dir firmware-output {$sketchDirectory}
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: espforge-firmware
