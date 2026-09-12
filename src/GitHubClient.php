@@ -67,16 +67,14 @@ final class GitHubClient
         }
     }
 
-    public function sourceBundle(string $fullName, string $branch, array $tree, int $limit = 60): string
+    public function sourceBundle(string $fullName, string $branch, array $tree, int $limit = 140): string
     {
-        $bundle = ''; $count = 0;
-        foreach ($tree as $entry) {
-            $path = $entry['path'] ?? '';
-            if (($entry['type'] ?? '') !== 'blob' || !preg_match('/\.(?:ino|h|hpp|c|cpp)$/i', $path)) continue;
-            if (($entry['size'] ?? 0) > 250000 || $count++ >= $limit) continue;
-            $content = $this->file($fullName, $path, $branch);
-            if ($content !== null) $bundle .= "\n// ESPForge source: {$path}\n" . $content;
-        }
+        $sources=array_values(array_filter($tree,fn($entry)=>($entry['type']??'')==='blob'&&preg_match('/\.(?:ino|h|hpp|c|cpp)$/i',(string)($entry['path']??''))&&($entry['size']??0)<=250000));
+        $primaryDirectories=[];
+        foreach($sources as $entry){$path=(string)$entry['path'];if(!preg_match('/\.ino$/i',$path)||preg_match('~(?:^|/)(?:test|tests|example|examples|demo|demos)(?:/|$)|(?:test|example|demo)[^/]*\.ino$~i',$path))continue;$directory=dirname($path);if($directory!=='.')$primaryDirectories[$directory]=true;}
+        usort($sources,static function(array $left,array $right)use($primaryDirectories):int{$score=static function(array $entry)use($primaryDirectories):int{$path=(string)$entry['path'];$score=0;foreach($primaryDirectories as $directory=>$_)if(str_starts_with($path,$directory.'/')){$score-=1000;break;}if(preg_match('/\.ino$/i',$path))$score-=100;if(preg_match('~(?:^|/)(?:test|tests|example|examples|demo|demos)(?:/|$)~i',$path))$score+=2000;return $score;};return $score($left)<=>$score($right)?:strcasecmp((string)$left['path'],(string)$right['path']);});
+        $bundle='';$count=0;$maxBytes=6*1024*1024;
+        foreach($sources as $entry){if($count++ >= $limit||strlen($bundle)>=$maxBytes)break;$path=(string)$entry['path'];$content=$this->file($fullName,$path,$branch);if($content!==null)$bundle.="\n// ESPForge source: {$path}\n".substr($content,0,max(0,$maxBytes-strlen($bundle)));}
         return $bundle;
     }
 

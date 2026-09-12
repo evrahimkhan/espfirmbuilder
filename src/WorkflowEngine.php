@@ -143,7 +143,7 @@ YAML;
         $sketchDirectory=escapeshellarg(dirname($sketches[0])==='.'?'.':dirname($sketches[0]));
         $isEsp32S3=preg_match('/^\s*#\s*define\s+BOARD_ESP32_DIV_V2\b/m',$source)===1 || preg_match('/\bESP32[-_ ]?S3\b/i',$source)===1;
         $map=[
-            'PCF8574.h'=>'PCF8574 library@2.3.7','Adafruit_PN532.h'=>'Adafruit PN532@1.3.4','ArduinoJson.h'=>$legacy?'ArduinoJson@6.18.0':'ArduinoJson@7.4.2',
+            'PCF8574.h'=>'PCF8574 library@2.3.7','Adafruit_PN532.h'=>'Adafruit PN532@1.3.4','ArduinoJson.h'=>'ArduinoJson@6.18.2',
             'TFT_eSPI.h'=>'TFT_eSPI@2.5.43',
             'XPT2046_Touchscreen.h'=>'XPT2046_Touchscreen@1.4','RF24.h'=>'RF24@1.5.0','RCSwitch.h'=>'rc-switch@2.6.4',
             'NimBLEDevice.h'=>'NimBLE-Arduino@1.4.2','ESP32Ping.h'=>'ESP32Ping@1.6','AsyncTCP.h'=>'Async TCP@3.4.8','ESPAsyncWebServer.h'=>'ESP Async WebServer@3.8.1','LinkedList.h'=>'LinkedList@1.3.3','SoftwareSerial.h'=>'EspSoftwareSerial@8.1.0','MicroNMEA.h'=>'MicroNMEA@2.0.6','IRremoteESP8266.h'=>'IRremoteESP8266@2.8.6','arduinoFFT.h'=>'arduinoFFT@1.6.2',
