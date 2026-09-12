@@ -1,0 +1,7 @@
+CREATE TABLE rate_limits (
+ rate_key CHAR(64) PRIMARY KEY,
+ request_count INT UNSIGNED NOT NULL,
+ reset_at TIMESTAMP NOT NULL,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ INDEX ix_rate_limits_reset(reset_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -20,6 +20,7 @@ try{
         'password_reset_tokens'=>['token_hash','expires_at'],
         'email_verification_tokens'=>['token_hash','expires_at'],
         'flash_events'=>['chip','firmware_size','manifest_verified'],
+        'rate_limits'=>['rate_key','request_count','reset_at'],
     ];
     foreach($required as $table=>$columns){
         $q=$pdo->prepare('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?');$q->execute([$table]);$present=$q->fetchAll(PDO::FETCH_COLUMN);

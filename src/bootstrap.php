@@ -72,24 +72,18 @@ function try_operation_lock(string $name): DatabaseOperationLock|false {
 }
 function operation_lock(string $name): DatabaseOperationLock{$handle=try_operation_lock($name);if($handle===false)json_response(['error'=>'Another operation is already configuring this repository. Wait for it to finish and try again.'],409);return $handle;}
 
-/** Fixed-window, file-backed limiter suitable for a single shared-hosting instance. */
+/** Atomic MySQL fixed-window limiter shared by every application host. */
 function rate_limit(string $bucket, int $limit, int $windowSeconds, ?string $identity = null): void {
     $identity ??= isset($_SESSION['user']['id']) ? 'user:'.(int)$_SESSION['user']['id'] : 'ip:'.($_SERVER['REMOTE_ADDR'] ?? 'unknown');
-    $key=hash_hmac('sha256',$bucket.'|'.$identity,(string)($GLOBALS['config']['security']['encryption_key']??'espforge'));
-    $directory=rtrim(sys_get_temp_dir(),DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'espforge-rate-limits';
-    if(!is_dir($directory) && !@mkdir($directory,0700,true) && !is_dir($directory)) json_response(['error'=>'Rate limiter unavailable.'],503);
-    $handle=@fopen($directory.DIRECTORY_SEPARATOR.$key.'.json','c+');
-    if($handle===false) json_response(['error'=>'Rate limiter unavailable.'],503);
-    try {
-        if(!flock($handle,LOCK_EX)) json_response(['error'=>'Rate limiter unavailable.'],503);
-        $raw=stream_get_contents($handle); $record=json_decode($raw?:'[]',true); $now=time();
-        if(!is_array($record) || ($record['reset']??0)<=$now) $record=['count'=>0,'reset'=>$now+$windowSeconds];
-        $record['count']=(int)$record['count']+1;
-        ftruncate($handle,0); rewind($handle); fwrite($handle,json_encode($record)); fflush($handle);
-        $remaining=max(0,$limit-$record['count']);
-        header('X-RateLimit-Limit: '.$limit); header('X-RateLimit-Remaining: '.$remaining); header('X-RateLimit-Reset: '.$record['reset']);
-        if($record['count']>$limit){ header('Retry-After: '.max(1,$record['reset']-$now)); json_response(['error'=>'Too many requests. Please wait and try again.'],429); }
-    } finally { flock($handle,LOCK_UN); fclose($handle); }
+    $key=hash_hmac('sha256',$bucket.'|'.$identity,(string)($GLOBALS['config']['security']['encryption_key']??'espforge'));$pdo=db();
+    try{
+        $reset=date('Y-m-d H:i:s',time()+$windowSeconds);
+        $q=$pdo->prepare('INSERT INTO rate_limits(rate_key,request_count,reset_at) VALUES(?,1,?) ON DUPLICATE KEY UPDATE request_count=IF(reset_at<=NOW(),1,request_count+1),reset_at=IF(reset_at<=NOW(),VALUES(reset_at),reset_at)');$q->execute([$key,$reset]);
+        $q=$pdo->prepare('SELECT request_count,UNIX_TIMESTAMP(reset_at) reset_epoch FROM rate_limits WHERE rate_key=?');$q->execute([$key]);$record=$q->fetch();if(!$record)throw new RuntimeException('Rate-limit record unavailable.');
+    }catch(Throwable $error){error_log('ESPForge rate limiter failed: '.$error->getMessage());json_response(['error'=>'Rate limiter unavailable.'],503);}
+    $count=(int)$record['request_count'];$resetEpoch=(int)$record['reset_epoch'];$remaining=max(0,$limit-$count);
+    header('X-RateLimit-Limit: '.$limit);header('X-RateLimit-Remaining: '.$remaining);header('X-RateLimit-Reset: '.$resetEpoch);
+    if($count>$limit){header('Retry-After: '.max(1,$resetEpoch-time()));json_response(['error'=>'Too many requests. Please wait and try again.'],429);}
 }
 
 function encrypt_secret(string $value): string { global $config; $key=hash('sha256',$config['security']['encryption_key'],true); $iv=random_bytes(12); $tag=''; $cipher=openssl_encrypt($value,'aes-256-gcm',$key,OPENSSL_RAW_DATA,$iv,$tag); if($cipher===false) throw new RuntimeException('Secret encryption failed'); return base64_encode($iv.$tag.$cipher); }
