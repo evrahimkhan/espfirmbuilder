@@ -118,8 +118,10 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
     $api=$provider==='github'?'https://api.github.com/user':'https://openidconnect.googleapis.com/v1/userinfo';
     try{$profile=oauth_json_request($api,['Authorization: Bearer '.$token,'Accept: application/json','User-Agent: ESPForge']);}catch(RuntimeException $error){error_log('ESPForge OAuth profile request failed for '.$provider.': '.$error->getMessage());oauth_dashboard_error('The OAuth provider profile could not be loaded. Please connect again.');}
     $providerId=(string)($profile['id']??$profile['sub']??''); $email=$profile['email']??null;
-    if($provider==='github' && !$email){
-        try{$emails=oauth_json_request('https://api.github.com/user/emails',['Authorization: Bearer '.$token,'Accept: application/vnd.github+json','User-Agent: ESPForge']);}catch(RuntimeException $error){$emails=[];error_log('ESPForge GitHub email lookup failed: '.$error->getMessage());}
+    if($provider==='google'&&($profile['email_verified']??false)!==true) oauth_dashboard_error('Google did not confirm that this account email is verified.');
+    if($provider==='github'){
+        $email=null;
+        try{$emails=oauth_json_request('https://api.github.com/user/emails',['Authorization: Bearer '.$token,'Accept: application/vnd.github+json','User-Agent: ESPForge']);}catch(RuntimeException $error){error_log('ESPForge GitHub verified-email lookup failed: '.$error->getMessage());oauth_dashboard_error('GitHub verified-email information could not be loaded. Reconnect and approve the user:email permission.');}
         if(is_array($emails)){
             foreach($emails as $item) if(is_array($item)&&!empty($item['primary'])&&!empty($item['verified'])&&!empty($item['email'])){$email=$item['email'];break;}
             if(!$email) foreach($emails as $item) if(is_array($item)&&!empty($item['verified'])&&!empty($item['email'])){$email=$item['email'];break;}
@@ -130,7 +132,8 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         if(!$email) error_log('ESPForge GitHub account has no usable verified email; using a provider-scoped noreply identity when possible.');
     }
     $email=is_string($email)?filter_var($email,FILTER_VALIDATE_EMAIL):false;
-    if(!$providerId||!$email||strlen($email)>255) oauth_dashboard_error('The provider did not return a verified, usable account identity.');
+    $validProviderId=$provider==='github'?preg_match('/^[0-9]{1,64}$/',$providerId):preg_match('/^[A-Za-z0-9_-]{1,128}$/',$providerId);
+    if(!$validProviderId||!$email||strlen($email)>255) oauth_dashboard_error('The provider did not return a verified, usable account identity.');
     $idColumn=$provider.'_id';
     $q=db()->prepare("SELECT * FROM users WHERE {$idColumn}=? LIMIT 1"); $q->execute([$providerId]); $providerRecord=$q->fetch();
     $q=db()->prepare('SELECT * FROM users WHERE email=? LIMIT 1'); $q->execute([$email]); $emailRecord=$q->fetch();
