@@ -17,6 +17,7 @@ $base['github']['client_id'] = getenv('GITHUB_CLIENT_ID') ?: $base['github']['cl
 $base['github']['client_secret'] = getenv('GITHUB_CLIENT_SECRET') ?: $base['github']['client_secret'];
 $base['google']['client_id'] = getenv('GOOGLE_CLIENT_ID') ?: $base['google']['client_id'];
 $base['google']['client_secret'] = getenv('GOOGLE_CLIENT_SECRET') ?: $base['google']['client_secret'];
+$base['mail']['from'] = getenv('MAIL_FROM') ?: ($base['mail']['from'] ?? '');
 $base['github']['redirect_uri'] = rtrim($base['app']['url'], '/') . '/api/auth.php?action=github_callback';
 $base['google']['redirect_uri'] = rtrim($base['app']['url'], '/') . '/api/auth.php?action=google_callback';
 return $base;

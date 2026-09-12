@@ -34,6 +34,7 @@ Open `http://localhost:8080`. Configure settings through environment variables w
 APP_URL, APP_ENV, APP_KEY, APP_PREVIOUS_KEYS, DB_DSN, DB_USER, DB_PASSWORD
 GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+MAIL_FROM
 ```
 
 Never deploy with the example `APP_KEY`. Register the exact callback URLs shown in `config/config.php` with GitHub and Google. Connecting a repository inspects its Git tree, commits `.github/workflows/espforge-build.yml`, and later dispatches that workflow. Build links currently open the corresponding GitHub run, where artifacts can be downloaded. Repository analysis is deterministic by default; stored AI keys are ready for an optional model-assisted analyzer for non-standard layouts.

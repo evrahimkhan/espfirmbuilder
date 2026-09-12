@@ -43,7 +43,7 @@ function json_response(array $data, int $status = 200): never { http_response_co
 function body(): array { $raw=file_get_contents('php://input'); $decoded=json_decode($raw ?: '[]', true); return is_array($decoded) ? $decoded : $_POST; }
 function csrf(): string { if(empty($_SESSION['csrf'])) $_SESSION['csrf']=bin2hex(random_bytes(24)); return $_SESSION['csrf']; }
 function verify_csrf(): void { $h=$_SERVER['HTTP_X_CSRF_TOKEN']??''; if(!is_string($h) || !hash_equals($_SESSION['csrf']??'', $h)) json_response(['error'=>'Invalid CSRF token'],419); }
-function require_user(): array { if(empty($_SESSION['user'])) json_response(['error'=>'Authentication required'],401); return $_SESSION['user']; }
+function require_user(): array { if(empty($_SESSION['user'])) json_response(['error'=>'Authentication required'],401); $q=db()->prepare('SELECT session_version FROM users WHERE id=?');$q->execute([$_SESSION['user']['id']]);$version=$q->fetchColumn();if($version===false||(int)$version!==(int)($_SESSION['session_version']??0)){$_SESSION=[];session_regenerate_id(true);json_response(['error'=>'Your session is no longer valid. Please sign in again.'],401);} return $_SESSION['user']; }
 function require_recent_auth(int $maxAge=1800): void { if(time()-(int)($_SESSION['authenticated_at']??0)>$maxAge) json_response(['error'=>'For your security, sign out and sign in again before performing this action.','code'=>'recent_auth_required'],428); }
 
 /** Fixed-window, file-backed limiter suitable for a single shared-hosting instance. */

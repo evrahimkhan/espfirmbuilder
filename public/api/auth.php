@@ -3,8 +3,44 @@ require __DIR__ . '/../../src/bootstrap.php';
 $action = $_GET['action'] ?? 'session';
 function oauth_dashboard_error(string $message): never { $page=!empty($_SESSION['user'])?'dashboard.html':'index.html'; $fragment=$page==='dashboard.html'?'#settings':''; header('Location: ../'.$page.'?oauth_error='.rawurlencode($message).$fragment); exit; }
 
-if ($action === 'session') json_response(['user' => $_SESSION['user'] ?? null, 'csrf' => csrf()]);
+if ($action === 'session') { if(!empty($_SESSION['user'])) require_user(); json_response(['user' => $_SESSION['user'] ?? null, 'csrf' => csrf()]); }
 if ($action === 'logout') { verify_csrf(); audit_event('auth.logout'); $_SESSION=[]; if(ini_get('session.use_cookies')){$params=session_get_cookie_params();setcookie(session_name(),'',time()-42000,$params['path'],$params['domain'],$params['secure'],$params['httponly']);} session_destroy(); json_response(['ok' => true]); }
+
+if ($action === 'request_password_reset') {
+    rate_limit('password-reset-request',5,3600); verify_csrf(); $data=body();
+    $email=filter_var($data['email']??'',FILTER_VALIDATE_EMAIL);
+    $message='If an account can receive mail at that address, a password reset link has been sent.';
+    if($email){
+        $q=db()->prepare('SELECT id,name,email FROM users WHERE email=? LIMIT 1');$q->execute([$email]);$record=$q->fetch();
+        if($record){
+            $token=bin2hex(random_bytes(32));$hash=hash('sha256',$token);
+            db()->prepare('DELETE FROM password_reset_tokens WHERE user_id=? OR expires_at<NOW()')->execute([$record['id']]);
+            db()->prepare('INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 30 MINUTE))')->execute([$record['id'],$hash]);
+            $from=(string)($config['mail']['from']??'');
+            if(filter_var($from,FILTER_VALIDATE_EMAIL)){
+                $link=rtrim((string)$config['app']['url'],'/').'/?reset_token='.rawurlencode($token);
+                $subject='Reset your ESPForge password';$bodyText="Hello {$record['name']},\n\nUse this one-time link within 30 minutes to reset your ESPForge password:\n{$link}\n\nIf you did not request this, ignore this email.";
+                $sent=@mail((string)$record['email'],$subject,$bodyText,['From'=>$from,'Content-Type'=>'text/plain; charset=UTF-8']);
+                if(!$sent) error_log('ESPForge password reset mail delivery failed for user '.$record['id']);
+            } else error_log('ESPForge MAIL_FROM is not configured; password reset mail not sent.');
+            audit_event('password_reset.requested',['user_id'=>(int)$record['id']]);
+        }
+    }
+    json_response(['ok'=>true,'message'=>$message]);
+}
+
+if ($action === 'reset_password') {
+    rate_limit('password-reset-complete',8,3600); verify_csrf(); $data=body();
+    $token=(string)($data['token']??'');$password=(string)($data['password']??'');
+    if(!preg_match('/^[a-f0-9]{64}$/',$token)||strlen($password)<8) json_response(['error'=>'The reset link is invalid, or the password is shorter than 8 characters.'],422);
+    $hash=hash('sha256',$token);$pdo=db();$pdo->beginTransaction();
+    try{$q=$pdo->prepare('SELECT * FROM password_reset_tokens WHERE token_hash=? AND used_at IS NULL AND expires_at>NOW() FOR UPDATE');$q->execute([$hash]);$reset=$q->fetch();
+        if(!$reset){$pdo->rollBack();json_response(['error'=>'This password reset link is invalid or has expired.'],422);}
+        $pdo->prepare('UPDATE users SET password_hash=?,session_version=session_version+1 WHERE id=?')->execute([password_hash($password,PASSWORD_DEFAULT),$reset['user_id']]);
+        $pdo->prepare('UPDATE password_reset_tokens SET used_at=NOW() WHERE user_id=? AND used_at IS NULL')->execute([$reset['user_id']]);$pdo->commit();
+        audit_event('password_reset.completed',['user_id'=>(int)$reset['user_id']]);json_response(['ok'=>true,'message'=>'Password updated. You can now sign in.']);
+    }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}
+}
 
 if ($action === 'register' || $action === 'login') {
     rate_limit('auth-'.$action, 8, 900);
@@ -22,7 +58,7 @@ if ($action === 'register' || $action === 'login') {
             $id = (int)$record['id']; $name = $record['name'];
             if(password_needs_rehash((string)$record['password_hash'],PASSWORD_DEFAULT)) db()->prepare('UPDATE users SET password_hash=? WHERE id=?')->execute([password_hash($password,PASSWORD_DEFAULT),$id]);
         }
-        session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user'] = ['id' => $id, 'name' => $name, 'email' => $email]; $_SESSION['authenticated_at']=time(); audit_event('auth.'.$action);
+        session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user'] = ['id' => $id, 'name' => $name, 'email' => $email]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.'.$action);
         json_response(['user' => $_SESSION['user']]);
     } catch (PDOException $e) { json_response(['error' => $e->getCode() === '23000' ? 'Email already registered.' : 'Database unavailable.'], 409); }
 }
@@ -133,6 +169,6 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         error_log('ESPForge OAuth account link failed: '.$e->getMessage());
         oauth_dashboard_error('This provider identity is already linked to another account. Sign out and use the originally linked account.');
     }
-    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider]); header('Location: ../dashboard.html'); exit;
+    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider]); header('Location: ../dashboard.html'); exit;
 }
 json_response(['error' => 'Unknown action'], 404);
