@@ -11,9 +11,10 @@ const resendButton=document.querySelector('.resend');
 const errorBox=document.querySelector('.auth-error');
 const resetToken=new URLSearchParams(location.search).get('reset_token');
 const oauthError=new URLSearchParams(location.search).get('oauth_error');
+const authMessage=new URLSearchParams(location.search).get('auth_message');
 
 function setMode(next){
- mode=next;errorBox.textContent='';
+ mode=next;errorBox.textContent='';errorBox.style.color='';
  nameField.style.display=mode==='register'?'block':'none';
  emailField.style.display=mode==='reset'?'none':'';emailField.required=mode!=='reset';
  passwordField.style.display=['forgot','verify'].includes(mode)?'none':'';passwordField.required=!['forgot','verify'].includes(mode);
@@ -52,4 +53,5 @@ form.onsubmit=async event=>{
 };
 
 if(resetToken){history.replaceState(null,'',location.pathname);setMode('reset');dialog.showModal()}
+if(authMessage){history.replaceState(null,'',location.pathname);setMode('login');dialog.showModal();queueMicrotask(()=>{errorBox.style.color=authMessage.startsWith('Email verified')?'#19a878':'';errorBox.textContent=authMessage})}
 if(oauthError){history.replaceState(null,'',location.pathname);setMode('login');dialog.showModal();queueMicrotask(()=>errorBox.textContent=oauthError)}
