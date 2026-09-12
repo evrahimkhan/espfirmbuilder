@@ -6,6 +6,7 @@ require __DIR__ . '/../../src/TargetAnalyzer.php';
 require __DIR__ . '/../../src/AITargetAnalyzer.php';
 $user=require_user();
 if($_SERVER['REQUEST_METHOD']==='GET'){
+ rate_limit(($_GET['refresh']??'')==='1'?'build-refresh':'build-list',($_GET['refresh']??'')==='1'?40:60,60);
  if(isset($_GET['details'])){
   $id=(int)$_GET['details']; $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?'); $q->execute([$id,$user['id']]); $build=$q->fetch();
   if(!$build||empty($build['github_run_id'])) json_response(['error'=>'Build run details are not available.'],404);
@@ -37,6 +38,8 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
  json_response(['builds'=>$builds]);
 }
 verify_csrf(); $data=body();
+$buildAction=(string)($data['action']??'dispatch');
+rate_limit('build-'.$buildAction,$buildAction==='dispatch'?5:20,$buildAction==='dispatch'?600:60);
 if(($data['action']??'')==='clear_logs'){
  // Hide completed log entries without deleting build records, so monthly build
  // totals and success-rate calculations remain accurate.

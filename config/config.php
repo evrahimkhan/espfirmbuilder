@@ -6,6 +6,7 @@ if (is_file($localFile)) {
     if (is_array($local)) $base = array_replace_recursive($base, $local);
 }
 $base['app']['url'] = getenv('APP_URL') ?: $base['app']['url'];
+$base['app']['env'] = getenv('APP_ENV') ?: $base['app']['env'];
 $base['database']['dsn'] = getenv('DB_DSN') ?: $base['database']['dsn'];
 $base['database']['user'] = getenv('DB_USER') ?: $base['database']['user'];
 $base['database']['password'] = getenv('DB_PASSWORD') ?: $base['database']['password'];

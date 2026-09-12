@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 $user=require_user();
+rate_limit('build-download',10,300);
 $id=(int)($_GET['build_id']??0); $kind=(string)($_GET['kind']??'artifact');
 if(!in_array($kind,['artifact','logs'],true)) json_response(['error'=>'Invalid download type.'],422);
 $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?');

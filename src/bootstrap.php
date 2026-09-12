@@ -1,39 +1,68 @@
 <?php
 declare(strict_types=1);
+
 $config = require __DIR__ . '/../config/config.php';
-$isProduction = ($config['app']['env'] ?? 'production') === 'production';
+$isProduction = strtolower((string)($config['app']['env'] ?? 'production')) === 'production';
 ini_set('display_errors', $isProduction ? '0' : '1');
+ini_set('display_startup_errors', $isProduction ? '0' : '1');
 ini_set('log_errors', '1');
+error_reporting(E_ALL);
+
+set_exception_handler(static function (Throwable $error) use ($isProduction): never {
+    $requestId = bin2hex(random_bytes(6));
+    error_log("ESPForge unhandled exception [{$requestId}]: {$error}");
+    if (!headers_sent()) header('Content-Type: application/json; charset=utf-8');
+    http_response_code(500);
+    $payload = ['error' => 'An unexpected server error occurred.', 'request_id' => $requestId];
+    if (!$isProduction) $payload['detail'] = $error->getMessage();
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+    exit;
+});
+
 ini_set('session.use_strict_mode', '1');
+ini_set('session.use_only_cookies', '1');
 ini_set('session.cookie_httponly', '1');
 ini_set('session.cookie_samesite', 'Lax');
-if (!empty($_SERVER['HTTPS'])) ini_set('session.cookie_secure', '1');
-session_name($config['security']['session_name']);
+$isHttps = !empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off';
+if ($isProduction || $isHttps) ini_set('session.cookie_secure', '1');
+session_name((string)$config['security']['session_name']);
 session_start();
+
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: strict-origin-when-cross-origin');
-function json_response(array $data, int $status=200): never { http_response_code($status); header('Content-Type: application/json'); echo json_encode($data); exit; }
-function body(): array { $raw=file_get_contents('php://input'); return json_decode($raw ?: '[]', true) ?: $_POST; }
+header('X-Frame-Options: DENY');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(self), serial=(self)');
+header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self' https://github.com https://accounts.google.com; frame-ancestors 'none'; object-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; upgrade-insecure-requests");
+
+function json_response(array $data, int $status = 200): never { http_response_code($status); header('Content-Type: application/json; charset=utf-8'); header('Cache-Control: no-store'); echo json_encode($data, JSON_UNESCAPED_SLASHES); exit; }
+function body(): array { $raw=file_get_contents('php://input'); $decoded=json_decode($raw ?: '[]', true); return is_array($decoded) ? $decoded : $_POST; }
 function csrf(): string { if(empty($_SESSION['csrf'])) $_SESSION['csrf']=bin2hex(random_bytes(24)); return $_SESSION['csrf']; }
-function verify_csrf(): void { $h=$_SERVER['HTTP_X_CSRF_TOKEN']??''; if(!hash_equals($_SESSION['csrf']??'', $h)) json_response(['error'=>'Invalid CSRF token'],419); }
+function verify_csrf(): void { $h=$_SERVER['HTTP_X_CSRF_TOKEN']??''; if(!is_string($h) || !hash_equals($_SESSION['csrf']??'', $h)) json_response(['error'=>'Invalid CSRF token'],419); }
 function require_user(): array { if(empty($_SESSION['user'])) json_response(['error'=>'Authentication required'],401); return $_SESSION['user']; }
+
+/** Fixed-window, file-backed limiter suitable for a single shared-hosting instance. */
+function rate_limit(string $bucket, int $limit, int $windowSeconds, ?string $identity = null): void {
+    $identity ??= isset($_SESSION['user']['id']) ? 'user:'.(int)$_SESSION['user']['id'] : 'ip:'.($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $key=hash_hmac('sha256',$bucket.'|'.$identity,(string)($GLOBALS['config']['security']['encryption_key']??'espforge'));
+    $directory=rtrim(sys_get_temp_dir(),DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'espforge-rate-limits';
+    if(!is_dir($directory) && !@mkdir($directory,0700,true) && !is_dir($directory)) json_response(['error'=>'Rate limiter unavailable.'],503);
+    $handle=@fopen($directory.DIRECTORY_SEPARATOR.$key.'.json','c+');
+    if($handle===false) json_response(['error'=>'Rate limiter unavailable.'],503);
+    try {
+        if(!flock($handle,LOCK_EX)) json_response(['error'=>'Rate limiter unavailable.'],503);
+        $raw=stream_get_contents($handle); $record=json_decode($raw?:'[]',true); $now=time();
+        if(!is_array($record) || ($record['reset']??0)<=$now) $record=['count'=>0,'reset'=>$now+$windowSeconds];
+        $record['count']=(int)$record['count']+1;
+        ftruncate($handle,0); rewind($handle); fwrite($handle,json_encode($record)); fflush($handle);
+        $remaining=max(0,$limit-$record['count']);
+        header('X-RateLimit-Limit: '.$limit); header('X-RateLimit-Remaining: '.$remaining); header('X-RateLimit-Reset: '.$record['reset']);
+        if($record['count']>$limit){ header('Retry-After: '.max(1,$record['reset']-$now)); json_response(['error'=>'Too many requests. Please wait and try again.'],429); }
+    } finally { flock($handle,LOCK_UN); fclose($handle); }
+}
+
 function encrypt_secret(string $value): string { global $config; $key=hash('sha256',$config['security']['encryption_key'],true); $iv=random_bytes(12); $tag=''; $cipher=openssl_encrypt($value,'aes-256-gcm',$key,OPENSSL_RAW_DATA,$iv,$tag); if($cipher===false) throw new RuntimeException('Secret encryption failed'); return base64_encode($iv.$tag.$cipher); }
 function decrypt_secret(?string $value): ?string { global $config; if(!$value) return null; $data=base64_decode($value,true); if($data===false || strlen($data)<29) return null; $key=hash('sha256',$config['security']['encryption_key'],true); $plain=openssl_decrypt(substr($data,28),'aes-256-gcm',$key,OPENSSL_RAW_DATA,substr($data,0,12),substr($data,12,16)); return $plain===false?null:$plain; }
 function ai_key_fingerprint(string $value): string { global $config; return hash_hmac('sha256',$value,$config['security']['encryption_key']); }
-function ensure_ai_key_ownership(): void {
-    static $done=false; if($done) return; $done=true; $pdo=db();
-    $column=$pdo->query("SHOW COLUMNS FROM users LIKE 'ai_key_fingerprint'")->fetch();
-    if(!$column) $pdo->exec('ALTER TABLE users ADD COLUMN ai_key_fingerprint CHAR(64) NULL, ADD UNIQUE INDEX uq_ai_key_fingerprint (ai_key_fingerprint)');
-    $rows=$pdo->query('SELECT id,ai_api_key,ai_key_fingerprint FROM users WHERE ai_api_key IS NOT NULL ORDER BY id')->fetchAll(); $owners=[];
-    foreach($rows as $row){
-        $plain=decrypt_secret($row['ai_api_key']); if(!$plain) continue; $fingerprint=ai_key_fingerprint($plain);
-        if(isset($owners[$fingerprint]) && $owners[$fingerprint]!=(int)$row['id']){
-            $q=$pdo->prepare('UPDATE users SET ai_api_key=NULL,ai_key_fingerprint=NULL WHERE id=?'); $q->execute([$row['id']]); continue;
-        }
-        $owners[$fingerprint]=(int)$row['id'];
-        if(($row['ai_key_fingerprint']??'')!==$fingerprint){ $q=$pdo->prepare('UPDATE users SET ai_key_fingerprint=? WHERE id=?'); $q->execute([$fingerprint,$row['id']]); }
-    }
-}
 function user_record(int $id): array { $q=db()->prepare('SELECT * FROM users WHERE id=?'); $q->execute([$id]); $user=$q->fetch(); if(!$user) json_response(['error'=>'User not found'],404); return $user; }
 function github_token(int $userId): string { $token=decrypt_secret(user_record($userId)['github_token']??null); if(!$token) json_response(['error'=>'Connect GitHub in Settings before continuing.'],409); return $token; }
-function db(): PDO { global $config; static $pdo; if(!$pdo) $pdo=new PDO($config['database']['dsn'],$config['database']['user'],$config['database']['password'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]); return $pdo; }
+function db(): PDO { global $config; static $pdo; if(!$pdo) $pdo=new PDO($config['database']['dsn'],$config['database']['user'],$config['database']['password'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]); return $pdo; }

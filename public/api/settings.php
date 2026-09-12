@@ -1,8 +1,7 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 $user = require_user();
-try { ensure_ai_key_ownership(); }
-catch(Throwable $e){ error_log('ESPForge API key ownership migration failed: '.$e->getMessage()); json_response(['error'=>'API key ownership storage could not be initialized.'],503); }
+rate_limit('settings', $_SERVER['REQUEST_METHOD'] === 'GET' ? 60 : 15, 60);
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $record = user_record((int)$user['id']);
     json_response(['settings' => [

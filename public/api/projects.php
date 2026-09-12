@@ -3,6 +3,7 @@ require __DIR__ . '/../../src/bootstrap.php';
 require __DIR__ . '/../../src/GitHubClient.php';
 require __DIR__ . '/../../src/WorkflowEngine.php';
 $user = require_user();
+rate_limit('projects', $_SERVER['REQUEST_METHOD'] === 'GET' ? 60 : 12, 60);
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $q=db()->prepare('SELECT r.*, (SELECT status FROM builds b WHERE b.repo_id=r.id ORDER BY id DESC LIMIT 1) build_status FROM repositories r WHERE user_id=? ORDER BY id DESC');
     $q->execute([$user['id']]); $projects=[];

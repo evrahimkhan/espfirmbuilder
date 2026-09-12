@@ -7,6 +7,7 @@ if ($action === 'session') json_response(['user' => $_SESSION['user'] ?? null, '
 if ($action === 'logout') { verify_csrf(); session_destroy(); json_response(['ok' => true]); }
 
 if ($action === 'register' || $action === 'login') {
+    rate_limit('auth-'.$action, 8, 900);
     verify_csrf(); $data = body();
     $email = filter_var($data['email'] ?? '', FILTER_VALIDATE_EMAIL); $password = $data['password'] ?? '';
     if (!$email || strlen($password) < 8) json_response(['error' => 'Enter a valid email and an 8+ character password.'], 422);

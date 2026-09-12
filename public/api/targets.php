@@ -3,7 +3,7 @@ require __DIR__.'/../../src/bootstrap.php';
 require __DIR__.'/../../src/GitHubClient.php';
 require __DIR__.'/../../src/TargetAnalyzer.php';
 require __DIR__.'/../../src/AITargetAnalyzer.php';
-$user=require_user(); $repo=(int)($_GET['repo_id']??0);
+$user=require_user(); rate_limit('targets',20,60); $repo=(int)($_GET['repo_id']??0);
 $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$repo,$user['id']]); $repository=$q->fetch();
 if(!$repository) json_response(['error'=>'Repository not found.'],404);
 try{
