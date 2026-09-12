@@ -79,15 +79,28 @@ final class TargetAnalyzer
             '/\b(?:npm\s+publish|docker\s+(?:push|login)|gh\s+release|git\s+push)\b/i',
             '/^\s*environment\s*:/mi', '/\bsecrets\s*\./i',
             '/^\s*[a-z-]+\s*:\s*write\s*$/mi',
+            '/^\s*permissions\s*:\s*write-all\s*$/mi',
+            '/^\s*permissions\s*:\s*\{[^}]*\bwrite\b[^}]*\}\s*$/mi',
+            '/\$\{\{\s*github\.token\s*\}\}/i',
         ];
         foreach($dangerous as $pattern) if(preg_match($pattern,$yaml))
-            throw new RuntimeException('This repository matrix includes publishing, deployment, or secret-enabled behavior. ESPForge refused to execute it; use a compile-only workflow.',422);
+            throw new RuntimeException('This repository matrix includes publishing, deployment, token, or write-enabled behavior. ESPForge refused to execute it; use a compile-only workflow.',422);
+        preg_match_all('/^\s*-?\s*uses\s*:\s*(\S+)\s*$/mi',$yaml,$uses);
+        foreach($uses[1]??[] as $reference){$reference=trim($reference,"\"'");
+            if(str_starts_with($reference,'./')||str_starts_with($reference,'docker://')) continue;
+            $at=strrpos($reference,'@');$revision=$at===false?'':substr($reference,$at+1);
+            if(!preg_match('/^[a-f0-9]{40}$/i',$revision)) throw new RuntimeException('This repository workflow uses a mutable action reference. Pin every third-party action to a full commit SHA before ESPForge executes it.',422);
+        }
     }
 
     private static function addBuildCorrelation(string $yaml): string
     {
         $expression='${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}';
         if(!preg_match('/^run-name:/m',$yaml)) $yaml=preg_replace('/^(name:.*)$/m',"$1\nrun-name: ESPForge build {$expression}",$yaml,1)??$yaml;
+        if(!preg_match('/^permissions\s*:/m',$yaml)){
+            $yaml=preg_replace('/^jobs\s*:/m',"permissions:\n  contents: read\n\njobs:",$yaml,1)??$yaml;
+            if(!preg_match('/^permissions\s*:/m',$yaml)) throw new RuntimeException('The repository workflow has no recognizable jobs section.',422);
+        }
 
         // Existing matrix workflows vary widely. Add one dispatch input without
         // touching their jobs, permissions, matrix, release flags, or other inputs.
