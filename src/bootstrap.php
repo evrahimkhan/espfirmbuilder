@@ -41,8 +41,13 @@ if(!empty($_SESSION['user'])&&($now-(int)($_SESSION['last_activity']??$now)>7200
 $_SESSION['last_activity']=$now;
 
 header('X-Content-Type-Options: nosniff');
+header('Cache-Control: no-store');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('X-Frame-Options: DENY');
+header('Cross-Origin-Opener-Policy: same-origin');
+header('Cross-Origin-Resource-Policy: same-origin');
+header('X-Permitted-Cross-Domain-Policies: none');
+if($isProduction) header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
 header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(self), serial=(self)');
 header("Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' https://cdn.jsdelivr.net/npm/esptool-js@0.5.4/ https://cdn.jsdelivr.net/npm/pako@2.1.0/ https://cdn.jsdelivr.net/npm/atob-lite@2.0.0/; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; upgrade-insecure-requests");
 
