@@ -1,5 +1,11 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
+function archive_safety_error(string $path,int $maxEntryBytes=104857600): ?string {
+ if(!class_exists('ZipArchive'))return null;$zip=new ZipArchive();if($zip->open($path)!==true)return 'Downloaded content is not a readable ZIP archive.';
+ $total=0;if($zip->numFiles>2000){$zip->close();return 'Archive contains too many entries.';}
+ for($index=0;$index<$zip->numFiles;$index++){$stat=$zip->statIndex($index);if(!$stat){$zip->close();return 'Archive metadata could not be read.';}$name=str_replace('\\','/',(string)($stat['name']??''));if(str_starts_with($name,'/')||preg_match('~^[A-Za-z]:/|(?:^|/)\.\.(?:/|$)|[\x00-\x1F\x7F]~',$name)){ $zip->close();return 'Archive contains an unsafe file path.';}if(str_ends_with($name,'/'))continue;$size=(int)($stat['size']??0);$compressed=max(1,(int)($stat['comp_size']??1));$total+=$size;if($size>$maxEntryBytes||$size/$compressed>100||$total>250*1024*1024){$zip->close();return 'Archive failed decompression safety limits.';}}
+ $zip->close();return null;
+}
 $user=require_user();
 rate_limit('build-download',10,300);
 $id=(int)($_GET['build_id']??0); $kind=(string)($_GET['kind']??'artifact');
@@ -28,12 +34,14 @@ if($kind==='artifact'){
 // Stream GitHub into a bounded temporary file. Never buffer an untrusted archive
 // in PHP memory, and abort immediately if redirects exceed the byte budget.
 $maxBytes=100*1024*1024; $received=0; $temporary=tempnam(sys_get_temp_dir(),'espforge-download-');
+if($temporary!==false)register_shutdown_function(static function()use($temporary):void{if(is_file($temporary))@unlink($temporary);});
 if($temporary===false) json_response(['error'=>'Download storage is unavailable.'],503);
 $file=fopen($temporary,'w+b'); if($file===false){@unlink($temporary);json_response(['error'=>'Download storage is unavailable.'],503);}
 $ch=curl_init($url);
 curl_setopt_array($ch,[CURLOPT_FOLLOWLOCATION=>true,CURLOPT_MAXREDIRS=>3,CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>120,CURLOPT_CONNECTTIMEOUT=>15,CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use($file,&$received,$maxBytes):int{$length=strlen($chunk);$received+=$length;if($received>$maxBytes)return 0;return fwrite($file,$chunk)===false?0:$length;}]);
 $ok=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); $error=curl_error($ch); curl_close($ch); fflush($file); fclose($file);
 if($ok===false||$status<200||$status>=300||$received>$maxBytes){@unlink($temporary);json_response(['error'=>$received>$maxBytes?'Download exceeded the 100 MB safety limit.':'Download failed'.($error!==''?': '.$error:'.')],$received>$maxBytes?413:502);}
+$archiveError=archive_safety_error($temporary,$maxBytes);if($archiveError!==null){@unlink($temporary);json_response(['error'=>$archiveError],422);}
 
 $outputPath=$temporary;
 if($kind==='artifact'&&class_exists('ZipArchive')){
@@ -47,8 +55,12 @@ if($kind==='artifact'&&class_exists('ZipArchive')){
    if(str_ends_with(strtolower((string)$stat['name']),'.zip')){$innerIndex=$index;$zipCount++;$filename=basename((string)$stat['name']);}
   }
   if($zipCount===1&&$innerIndex!==null){
-   $stat=$zip->statIndex($innerIndex);$innerPath=tempnam(sys_get_temp_dir(),'espforge-inner-');$input=$zip->getStream((string)$stat['name']);$output=$innerPath!==false?fopen($innerPath,'w+b'):false;
-   if($input&&$output){$copied=stream_copy_to_stream($input,$output,$maxBytes+1);fclose($input);fclose($output);if($copied!==false&&$copied<=$maxBytes)$outputPath=$innerPath;else @unlink((string)$innerPath);}else{if(is_resource($input))fclose($input);if(is_resource($output))fclose($output);if($innerPath!==false)@unlink($innerPath);}
+   $stat=$zip->statIndex($innerIndex);$innerPath=tempnam(sys_get_temp_dir(),'espforge-inner-');if($innerPath!==false)register_shutdown_function(static function()use($innerPath):void{if(is_file($innerPath))@unlink($innerPath);});$input=$zip->getStream((string)$stat['name']);$output=$innerPath!==false?fopen($innerPath,'w+b'):false;
+   if($input&&$output){
+    $copied=stream_copy_to_stream($input,$output,$maxBytes+1);fclose($input);fclose($output);
+    $innerError=$copied!==false&&$copied<=$maxBytes?archive_safety_error($innerPath,$maxBytes):'Nested artifact exceeds the safety limit.';
+    if($innerError===null)$outputPath=$innerPath;else{$zip->close();@unlink((string)$innerPath);@unlink($temporary);json_response(['error'=>$innerError],422);}
+   }else{if(is_resource($input))fclose($input);if(is_resource($output))fclose($output);if($innerPath!==false)@unlink($innerPath);}
   }
   $zip->close();
  }
