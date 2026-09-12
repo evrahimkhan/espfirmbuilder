@@ -176,24 +176,39 @@ YAML;
 YAML;
     }
 
+    private static function parseDefaultEnvironments(string $ini): array
+    {
+        $entries=[];$reading=false;$assignmentDisabled=false;
+        foreach(preg_split('/\R/',$ini) as $line){
+            if(!$reading){
+                if(!preg_match('/^\s*([;#]\s*)?default_envs\s*=\s*(.*)$/i',$line,$start)) continue;
+                $reading=true;$assignmentDisabled=trim((string)($start[1]??''))!=='';$line=(string)$start[2];
+            } elseif(preg_match('/^\s*\[/', $line)||preg_match('/^\s*[A-Za-z0-9_.-]+\s*=/', $line)) break;
+            if(trim($line)==='') continue;
+            $lineDisabled=$assignmentDisabled||preg_match('/^\s*[;#]/',$line)===1;
+            $clean=preg_replace('/^\s*[;#]\s*/','',trim($line))??'';
+            // Commas are valid separators in PlatformIO's default_envs option.
+            // A whitespace comment is removed only after a complete identifier.
+            foreach(preg_split('/\s*,\s*/',$clean) as $candidate){
+                $candidate=preg_replace('/\s+[;#].*$/','',trim($candidate))??'';
+                $candidate=trim($candidate," \t\n\r\0\x0B\"'");
+                if(!preg_match('/^[A-Za-z0-9_.-]+$/',$candidate)||strtolower($candidate)==='native') continue;
+                $entries[$candidate]=['environment'=>$candidate,'disabled'=>$lineDisabled];
+            }
+        }
+        return array_values($entries);
+    }
+
     private static function discoverPlatformIOTargets(GitHubClient $github,string $fullName,string $branch,array $paths): array
     {
         $targets=[];
         // default_envs is commonly used as a board catalogue where a semicolon means
         // "not built by default", not that the [env] itself is unavailable.
         if(in_array('platformio.ini',$paths,true)){
-            $root=$github->file($fullName,'platformio.ini',$branch)??''; $reading=false;
-            foreach(preg_split('/\R/',$root) as $line){
-                if(!$reading && preg_match('/^\s*default_envs\s*=\s*(.*)$/i',$line,$start)){
-                    $reading=true; $line=$start[1];
-                } elseif($reading && (trim($line)===''||preg_match('/^\s*\[/', $line)||preg_match('/^\s*[A-Za-z0-9_.-]+\s*=/', $line))) break;
-                if(!$reading) continue;
-                $disabled=preg_match('/^\s*[;#]/',$line)===1;
-                $environment=preg_replace('/^\s*[;#]\s*/','',trim($line));
-                $environment=preg_replace('/\s+[;#].*$/','',$environment??'');
-                $environment=trim((string)$environment," \t\n\r\0\x0B\"'");
-                if(!preg_match('/^[A-Za-z0-9_.-]+$/',$environment)||strtolower($environment)==='native') continue;
-                $targets[$environment]=['id'=>$environment,'name'=>self::label($environment),'type'=>'platformio','environment'=>$environment,'config_path'=>'platformio.ini','disabled'=>$disabled,'source'=>'default_envs'];
+            $root=$github->file($fullName,'platformio.ini',$branch)??'';
+            foreach(self::parseDefaultEnvironments($root) as $entry){
+                $environment=$entry['environment'];
+                $targets[$environment]=['id'=>$environment,'name'=>self::label($environment),'type'=>'platformio','environment'=>$environment,'config_path'=>'platformio.ini','disabled'=>$entry['disabled'],'source'=>'default_envs'];
             }
             if($targets) return array_values($targets);
         }

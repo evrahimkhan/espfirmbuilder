@@ -46,13 +46,20 @@ final class GitHubClient
     }
 
     public function repository(string $fullName): array { return $this->request('GET', '/repos/' . $fullName); }
-    public function tree(string $fullName, string $branch): array { return $this->request('GET', "/repos/{$fullName}/git/trees/" . rawurlencode($branch) . '?recursive=1'); }
+    public function tree(string $fullName, string $branch): array {
+        $tree=$this->request('GET', "/repos/{$fullName}/git/trees/" . rawurlencode($branch) . '?recursive=1');
+        if(!empty($tree['truncated'])) throw new RuntimeException('This repository tree is too large for safe complete analysis. Use a smaller firmware-only repository or subproject.',422);
+        return $tree;
+    }
 
     public function file(string $fullName, string $path, string $branch): ?string
     {
         try {
             $file = $this->request('GET', "/repos/{$fullName}/contents/" . implode('/', array_map('rawurlencode', explode('/', $path))) . '?ref=' . rawurlencode($branch));
-            return isset($file['content']) ? base64_decode(str_replace("\n", '', $file['content']), true) ?: null : null;
+            if((int)($file['size']??0)>1024*1024) throw new RuntimeException('Repository configuration file exceeds the 1 MB analysis limit.',422);
+            if(!isset($file['content'])||($file['encoding']??'base64')!=='base64') return null;
+            $decoded=base64_decode(str_replace("\n", '',(string)$file['content']),true);
+            return $decoded===false?null:$decoded;
         } catch (RuntimeException $e) {
             if ($e->getCode() === 404) return null;
             throw $e;
