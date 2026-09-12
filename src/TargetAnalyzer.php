@@ -15,14 +15,20 @@ final class TargetAnalyzer
             $yaml=$github->file($fullName,$path,$branch)??'';
             foreach(preg_split('/\R/',$yaml) as $line){
                 if(preg_match('/^\s*-\s*\{.*?name:\s*"([^"]+)".*?flag:\s*"([^"]+)".*?(?:fbqn|fqbn):\s*"([^"]+)"/',$line,$match)){
-                    $targets[]=['id'=>$match[2],'name'=>$match[1],'type'=>'workflow_matrix','fqbn'=>$match[3],'flag'=>$match[2],'matrix_field'=>'flag','workflow_path'=>$path];
+                    $flag=trim($match[2]);
+                    if(!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/',$flag))continue;
+                    // Treat repository matrices only as hardware metadata. Generate a
+                    // fresh compile-only workflow instead of executing publishing or
+                    // token-enabled repository workflow steps.
+                    $targets[]=['id'=>$flag,'name'=>$match[1],'type'=>'arduino','fqbn'=>$match[3],'flag'=>$flag,'build_flags'=>'-D'.$flag,'source'=>'workflow_metadata'];
                     continue;
                 }
                 // ESP-IDF repositories commonly pair each board with its chip and
                 // an authoritative sdkconfig file in an inline Actions matrix.
                 if(preg_match('/^\s*-\s*\{.*?name:\s*"([^"]+)".*?idf_target:\s*"([^"]+)".*?sdkconfig_file:\s*"([^"]+)"/',$line,$match)){
                     $id='idf-'.substr(hash('sha256',$match[3]),0,16);
-                    $targets[]=['id'=>$id,'name'=>$match[1],'type'=>'workflow_matrix','idf_target'=>$match[2],'config_path'=>$match[3],'flag'=>$match[3],'matrix_field'=>'sdkconfig_file','workflow_path'=>$path];
+                    if(!preg_match('/^esp32(?:s2|s3|c3|c5|c6)?$/',$match[2])||!self::safeConfigPath($match[3]))continue;
+                    $targets[]=['id'=>$id,'name'=>$match[1],'type'=>'esp-idf','idf_target'=>$match[2],'config_path'=>$match[3],'source'=>'workflow_metadata'];
                 }
             }
             if($targets) return $targets;
@@ -47,6 +53,11 @@ final class TargetAnalyzer
             'id'=>$s3?'esp32s3':'esp32', 'name'=>$s3?'ESP32-S3':'ESP32', 'type'=>'arduino',
             'fqbn'=>$s3?'esp32:esp32:esp32s3:PSRAM=enabled,PartitionScheme=min_spiffs,FlashMode=dio':'esp32:esp32:esp32'
         ]];
+    }
+
+    private static function safeConfigPath(string $path): bool
+    {
+        return strlen($path)<=300&&!str_starts_with($path,'/')&&!preg_match('~(?:^|/)\.\.(?:/|$)|[\x00-\x1F\x7F]~',$path);
     }
 
     public static function select(array $targets,string $id): ?array

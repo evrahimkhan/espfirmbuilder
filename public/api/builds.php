@@ -96,18 +96,19 @@ try {
  $target=TargetAnalyzer::select($targets,$targetId!==''?$targetId:(string)$targets[0]['id']);
  if(!$target) json_response(['error'=>'The selected hardware model is invalid or no longer available.'],422);
  $buildUuid=uuid_v4(); $inputs=['espforge_build_uuid'=>$buildUuid];
+ $targetFramework=in_array($target['type'],['arduino','arduino_define'],true)?'arduino':($target['type']==='esp-idf'?'esp-idf':$analysis['framework']);
  if($target['type']==='workflow_matrix'){
      $original=$github->file($repository['full_name'],$target['workflow_path'],$repository['default_branch']);
      if(!$original) throw new RuntimeException('The repository hardware workflow could not be read.',404);
      $workflow=TargetAnalyzer::filterMatrix($original,$target['flag'],$target['name'],$target['matrix_field']??'flag');
      if(str_contains($original,'create_release:')) $inputs['create_release']='false';
  } else {
-     $source=$analysis['framework']==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
-     $workflow=WorkflowEngine::workflow($analysis['framework'],$paths,$source);
+     $source=$targetFramework==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';
+     $workflow=WorkflowEngine::workflow($targetFramework,$paths,$source);
      if(in_array($target['type'],['platformio','platformio_disabled'],true)) $workflow=str_replace('run: pio run','run: pio run -e '.escapeshellarg($target['environment']),$workflow);
      if(in_array($target['type'],['arduino','arduino_define'],true)&&!empty($target['fqbn'])){
          $replacement='--fqbn "'.$target['fqbn'].'"';
-         if(!empty($target['build_flags'])) $replacement.=' --build-property build.extra_flags="'.$target['build_flags'].'"';
+         if(!empty($target['build_flags'])) $replacement.=' --build-property compiler.cpp.extra_flags="'.$target['build_flags'].'"';
          $workflow=preg_replace('/--fqbn "[^"]+"/',$replacement,$workflow,1)??$workflow;
      }
      $step=TargetAnalyzer::configurationStep($target,$targets);
@@ -121,10 +122,10 @@ try {
      if($chip===''&&preg_match('/esp32(?:s2|s3|c3|c5|c6)?/i',(string)($target['id']??''),$chipMatch)) $chip=strtolower($chipMatch[0]);
      if($chip==='') $chip='esp32';
      $uploadMarker='      - uses: actions/upload-artifact@';
-     $workflow=str_replace($uploadMarker,WorkflowEngine::manifestStep($analysis['framework'],$chip).$uploadMarker,$workflow);
+     $workflow=str_replace($uploadMarker,WorkflowEngine::manifestStep($targetFramework,$chip).$uploadMarker,$workflow);
  }
  $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name'].' [skip ci]');
- $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);
+ $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$targetFramework,$workflow,'workflow_ready',$repo]);
  $workflowFile='espforge-build.yml'; $buildMessage='Building selected model: '.$target['name'];
  // Workflows are disabled by default on many newly created forks.
  // Explicitly enable the generated workflow before dispatching it.
