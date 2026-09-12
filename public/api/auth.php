@@ -1,10 +1,10 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 $action = $_GET['action'] ?? 'session';
-function oauth_dashboard_error(string $message): never { header('Location: ../dashboard.html?oauth_error='.rawurlencode($message).'#settings'); exit; }
+function oauth_dashboard_error(string $message): never { $page=!empty($_SESSION['user'])?'dashboard.html':'index.html'; $fragment=$page==='dashboard.html'?'#settings':''; header('Location: ../'.$page.'?oauth_error='.rawurlencode($message).$fragment); exit; }
 
 if ($action === 'session') json_response(['user' => $_SESSION['user'] ?? null, 'csrf' => csrf()]);
-if ($action === 'logout') { verify_csrf(); session_destroy(); json_response(['ok' => true]); }
+if ($action === 'logout') { verify_csrf(); audit_event('auth.logout'); $_SESSION=[]; if(ini_get('session.use_cookies')){$params=session_get_cookie_params();setcookie(session_name(),'',time()-42000,$params['path'],$params['domain'],$params['secure'],$params['httponly']);} session_destroy(); json_response(['ok' => true]); }
 
 if ($action === 'register' || $action === 'login') {
     rate_limit('auth-'.$action, 8, 900);
@@ -20,8 +20,9 @@ if ($action === 'register' || $action === 'login') {
             $q = db()->prepare('SELECT * FROM users WHERE email=?'); $q->execute([$email]); $record = $q->fetch();
             if (!$record || !password_verify($password, $record['password_hash'] ?? '')) json_response(['error' => 'Invalid email or password.'], 401);
             $id = (int)$record['id']; $name = $record['name'];
+            if(password_needs_rehash((string)$record['password_hash'],PASSWORD_DEFAULT)) db()->prepare('UPDATE users SET password_hash=? WHERE id=?')->execute([password_hash($password,PASSWORD_DEFAULT),$id]);
         }
-        session_regenerate_id(true); $_SESSION['user'] = ['id' => $id, 'name' => $name, 'email' => $email]; $_SESSION['authenticated_at']=time(); audit_event('auth.'.$action);
+        session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user'] = ['id' => $id, 'name' => $name, 'email' => $email]; $_SESSION['authenticated_at']=time(); audit_event('auth.'.$action);
         json_response(['user' => $_SESSION['user']]);
     } catch (PDOException $e) { json_response(['error' => $e->getCode() === '23000' ? 'Email already registered.' : 'Database unavailable.'], 409); }
 }
@@ -44,24 +45,24 @@ if (in_array($action, ['github', 'google'], true)) {
 
 if (in_array($action, ['github_callback', 'google_callback'], true)) {
     $provider = str_replace('_callback', '', $action); $oauthState=(string)($_GET['state']??'');
-    if (!hash_equals($_SESSION['oauth_state'] ?? '', $oauthState) || ($_SESSION['oauth_provider'] ?? '') !== $provider) json_response(['error'=>'Invalid OAuth state.'], 400);
-    if (empty($_GET['code'])) json_response(['error'=>'Authorization was cancelled.'], 400);
+    if (!hash_equals($_SESSION['oauth_state'] ?? '', $oauthState) || ($_SESSION['oauth_provider'] ?? '') !== $provider) oauth_dashboard_error('The sign-in request expired or failed its security check. Please try connecting again.');
+    if (empty($_GET['code'])) oauth_dashboard_error('Authorization was cancelled. No account changes were made.');
     $tokenUrl = $provider === 'github' ? 'https://github.com/login/oauth/access_token' : 'https://oauth2.googleapis.com/token';
     $payload = ['client_id'=>$config[$provider]['client_id'], 'client_secret'=>$config[$provider]['client_secret'], 'code'=>$_GET['code'], 'redirect_uri'=>$config[$provider]['redirect_uri']];
     if ($provider === 'google') $payload['grant_type'] = 'authorization_code';
     $ch=curl_init($tokenUrl); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>http_build_query($payload),CURLOPT_HTTPHEADER=>['Accept: application/json'],CURLOPT_TIMEOUT=>20]);
     $tokenResponse=curl_exec($ch); $curlError=curl_error($ch); $tokenStatus=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); curl_close($ch);
-    if($tokenResponse===false) json_response(['error'=>'OAuth provider connection failed.','detail'=>$curlError?:'Outbound HTTPS request failed.'],502);
+    if($tokenResponse===false){ error_log('ESPForge OAuth connection failed: '.($curlError?:'outbound request failed')); oauth_dashboard_error('The OAuth provider could not be reached. Please try again shortly.'); }
     $tokenData=json_decode($tokenResponse,true)?:[]; $token=$tokenData['access_token']??null;
     if(!$token){
         $detail=$tokenData['error_description']??$tokenData['error']??('Provider returned HTTP '.$tokenStatus);
         error_log('ESPForge OAuth token exchange failed for '.$provider.': '.$detail);
-        json_response(['error'=>'OAuth token exchange failed.','detail'=>$detail],502);
+        oauth_dashboard_error('The OAuth provider rejected the authorization request. Please connect again.');
     }
     if($provider==='github'){
         $granted=array_filter(preg_split('/[\s,]+/',strtolower((string)($tokenData['scope']??''))));
         if(!in_array('repo',$granted,true) || !in_array('workflow',$granted,true)){
-            json_response(['error'=>'This credential does not have OAuth repository and workflow scopes. Create an OAuth App—not a GitHub App—then reconnect it.','granted_scopes'=>array_values($granted)],403);
+            oauth_dashboard_error('GitHub did not grant repository and workflow access. Reconnect using the configured GitHub OAuth App and approve the requested permissions.');
         }
     }
     $api=$provider==='github'?'https://api.github.com/user':'https://openidconnect.googleapis.com/v1/userinfo';
@@ -79,7 +80,7 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         if(!$email && !empty($profile['login']) && $providerId) $email=$providerId.'+'.preg_replace('/[^A-Za-z0-9-]/','',$profile['login']).'@users.noreply.github.com';
         if(!$email) error_log('ESPForge GitHub email lookup failed with HTTP '.$emailStatus);
     }
-    if(!$providerId || !$email) json_response(['error'=>'The provider did not return a usable account identity.'],422);
+    if(!$providerId || !$email) oauth_dashboard_error('The provider did not return a verified, usable account identity.');
     $idColumn=$provider.'_id';
     $q=db()->prepare("SELECT * FROM users WHERE {$idColumn}=? LIMIT 1"); $q->execute([$providerId]); $providerRecord=$q->fetch();
     $q=db()->prepare('SELECT * FROM users WHERE email=? LIMIT 1'); $q->execute([$email]); $emailRecord=$q->fetch();
@@ -132,6 +133,6 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         error_log('ESPForge OAuth account link failed: '.$e->getMessage());
         oauth_dashboard_error('This provider identity is already linked to another account. Sign out and use the originally linked account.');
     }
-    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider]); header('Location: ../dashboard.html'); exit;
+    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider]); header('Location: ../dashboard.html'); exit;
 }
 json_response(['error' => 'Unknown action'], 404);

@@ -27,6 +27,11 @@ $isHttps = !empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !=
 if ($isProduction || $isHttps) ini_set('session.cookie_secure', '1');
 session_name((string)$config['security']['session_name']);
 session_start();
+$now=time();
+if(!empty($_SESSION['user'])&&($now-(int)($_SESSION['last_activity']??$now)>7200||$now-(int)($_SESSION['authenticated_at']??$now)>86400)){
+    $_SESSION=[]; if(ini_get('session.use_cookies')){ $params=session_get_cookie_params(); setcookie(session_name(),'',time()-42000,$params['path'],$params['domain'],$params['secure'],$params['httponly']); } session_destroy(); session_start();
+}
+$_SESSION['last_activity']=$now;
 
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: strict-origin-when-cross-origin');
