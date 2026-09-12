@@ -20,9 +20,9 @@ final class WorkflowEngine
         if($framework==='platformio') return $header.<<<'YAML'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: "3.x"
+          python-version: "3.12"
       - name: Install PlatformIO
-        run: pip install --disable-pip-version-check platformio==6.1.18
+        run: pip install --disable-pip-version-check platformio==6.1.19
       - name: Build firmware
         run: pio run
       - name: Collect binaries
