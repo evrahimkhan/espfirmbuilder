@@ -121,8 +121,12 @@ Run the server-side checks:
 cd ~/espforge
 php -v
 php -m | grep -E 'curl|openssl|pdo_mysql'
-find config public/api src -name '*.php' -print0 | xargs -0 -n1 php -l
+find config public/api src bin tests -name '*.php' -print0 | xargs -0 -n1 php -l
+php tests/TargetAnalyzerParserTest.php
+php bin/preflight.php
 ```
+
+`bin/preflight.php` exits non-zero if required extensions, production configuration, writable temporary storage, mail delivery configuration, tables, columns, or uniqueness indexes are missing.
 
 Then test:
 

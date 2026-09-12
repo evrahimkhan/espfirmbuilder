@@ -1,0 +1,24 @@
+name: ESPForge quality checks
+
+"on":
+  pull_request: {}
+  push:
+    branches: [main, "arena/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: PHP syntax
+        run: find config public/api src bin tests -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Target parser regression tests
+        run: php tests/TargetAnalyzerParserTest.php
+      - name: JavaScript syntax
+        run: |
+          node --check public/assets/app.js
+          node --check public/assets/dashboard.js
