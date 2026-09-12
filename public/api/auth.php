@@ -69,14 +69,15 @@ if ($action === 'register' || $action === 'login') {
             $record=['id'=>$id,'name'=>$name,'email'=>$email];if(!send_verification_email($record)){db()->prepare('DELETE FROM users WHERE id=?')->execute([$id]);json_response(['error'=>'The verification email could not be sent. Please try again later.'],503);}audit_event('email.verification_sent',['user_id'=>$id]);json_response(['verification_required'=>true,'message'=>'Account created. Check your email and verify it before signing in.'],201);
         } else {
             $q = db()->prepare('SELECT * FROM users WHERE email=?'); $q->execute([$email]); $record = $q->fetch();
-            if (!$record || !password_verify($password, $record['password_hash'] ?? '')) json_response(['error' => 'Invalid email or password.'], 401);
-            if(empty($record['email_verified_at'])) json_response(['error'=>'Verify your email before signing in. Use “Resend verification email” to request a new link.','code'=>'email_unverified'],403);
+            $hasPassword=!empty($record['password_hash']);$passwordHash=$hasPassword?(string)$record['password_hash']:'$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.';$passwordValid=$hasPassword&&password_verify($password,$passwordHash);if(!$hasPassword)password_verify($password,$passwordHash);
+            if (!$record || !$passwordValid){audit_event('auth.login_failed',['email_hash'=>audit_identifier((string)$email)]);json_response(['error' => 'Invalid email or password.'], 401);}
+            if(empty($record['email_verified_at'])){audit_event('auth.login_blocked_unverified',['user_id'=>(int)$record['id']]);json_response(['error'=>'Verify your email before signing in. Use “Resend verification email” to request a new link.','code'=>'email_unverified'],403);}
             $id = (int)$record['id']; $name = $record['name'];
             if(password_needs_rehash((string)$record['password_hash'],PASSWORD_DEFAULT)) db()->prepare('UPDATE users SET password_hash=? WHERE id=?')->execute([password_hash($password,PASSWORD_DEFAULT),$id]);
         }
         session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user'] = ['id' => $id, 'name' => $name, 'email' => $email]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.'.$action);
         json_response(['user' => $_SESSION['user']]);
-    } catch (PDOException $e) { json_response(['error' => $e->getCode() === '23000' ? 'Email already registered.' : 'Database unavailable.'], 409); }
+    } catch (PDOException $e) { if($action==='register'&&$e->getCode()==='23000')audit_event('auth.registration_conflict',['email_hash'=>audit_identifier((string)$email)]); json_response(['error' => $e->getCode() === '23000' ? 'Email already registered.' : 'Database unavailable.'], $e->getCode()==='23000'?409:503); }
 }
 
 if (in_array($action, ['github', 'google'], true)) {
