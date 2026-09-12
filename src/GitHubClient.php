@@ -7,7 +7,8 @@ final class GitHubClient
 
     public function request(string $method, string $path, ?array $payload = null, bool $raw = false): array|string
     {
-        $url = str_starts_with($path, 'http') ? $path : 'https://api.github.com' . $path;
+        if(!str_starts_with($path,'/')) throw new InvalidArgumentException('GitHub API paths must be relative.');
+        $url = 'https://api.github.com' . $path;
         $headers = [
             'Accept: application/vnd.github+json',
             'Authorization: Bearer ' . $this->token,

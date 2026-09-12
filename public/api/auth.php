@@ -1,6 +1,8 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 $action = $_GET['action'] ?? 'session';
+$actionMethods=['session'=>['GET'],'logout'=>['POST'],'verify_email'=>['GET'],'resend_verification'=>['POST'],'request_password_reset'=>['POST'],'reset_password'=>['POST'],'register'=>['POST'],'login'=>['POST'],'github'=>['POST'],'google'=>['POST'],'github_callback'=>['GET'],'google_callback'=>['GET']];
+if(isset($actionMethods[$action]))require_method(...$actionMethods[$action]);
 function oauth_dashboard_error(string $message): never { $page=!empty($_SESSION['user'])?'dashboard.html':'index.html'; $fragment=$page==='dashboard.html'?'#settings':''; header('Location: ../'.$page.'?oauth_error='.rawurlencode($message).$fragment); exit; }
 function auth_landing_message(string $message): never { header('Location: ../index.html?auth_message='.rawurlencode($message)); exit; }
 function oauth_json_request(string $url,array $headers,array $form=[]): array { $raw='';$overflow=false;$max=1024*1024;$ch=curl_init($url);$options=[CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>20,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use(&$raw,&$overflow,$max):int{if(strlen($raw)+strlen($chunk)>$max){$overflow=true;return 0;}$raw.=$chunk;return strlen($chunk);}];if($form){$options[CURLOPT_POST]=true;$options[CURLOPT_POSTFIELDS]=http_build_query($form,'','&',PHP_QUERY_RFC3986);}curl_setopt_array($ch,$options);$ok=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);$error=curl_error($ch);curl_close($ch);$payload=json_decode($raw?:'[]',true);if($ok===false||$overflow||$status<200||$status>=300||!is_array($payload)){throw new RuntimeException($overflow?'OAuth response exceeded the safety limit.':($error!==''?$error:'OAuth provider returned HTTP '.$status),$status);}return $payload; }
@@ -82,6 +84,7 @@ if ($action === 'register' || $action === 'login') {
 }
 
 if (in_array($action, ['github', 'google'], true)) {
+    require_method('POST');verify_csrf();
     $provider = $action;
     if (empty($config[$provider]['client_id'])) json_response(['error' => ucfirst($provider) . ' OAuth is not configured.'], 503);
     $_SESSION['oauth_state'] = bin2hex(random_bytes(20)); $_SESSION['oauth_provider'] = $provider;
@@ -96,7 +99,7 @@ if (in_array($action, ['github', 'google'], true)) {
     $params = ['client_id'=>$config[$provider]['client_id'], 'redirect_uri'=>$config[$provider]['redirect_uri'], 'scope'=>$scope, 'state'=>$_SESSION['oauth_state'], 'response_type'=>'code'];
     $_SESSION['oauth_delete_states'][$_SESSION['oauth_state']]=$elevatedDelete;
     if ($provider === 'google') $params['access_type'] = 'online';
-    header('Location: ' . $base . '?' . http_build_query($params)); exit;
+    json_response(['authorization_url'=>$base.'?'.http_build_query($params)]);
 }
 
 if (in_array($action, ['github_callback', 'google_callback'], true)) {

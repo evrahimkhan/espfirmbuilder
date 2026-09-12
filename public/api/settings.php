@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
+require_method('GET','POST');
 $user = require_user();
 verify_csrf();
 rate_limit('settings', $_SERVER['REQUEST_METHOD'] === 'GET' ? 60 : 15, 60);
@@ -38,13 +39,14 @@ if (($data['action'] ?? '') === 'test_ai_key') {
     $headers = ['Accept: application/json', 'User-Agent: ESPForge'];
     if ($provider === 'google') $headers[] = 'x-goog-api-key: ' . $key;
     else $headers[] = 'Authorization: Bearer ' . $key;
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>15,CURLOPT_FOLLOWLOCATION=>false]);
-    $response = curl_exec($ch); $status = (int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); $error = curl_error($ch); curl_close($ch);
-    if ($response === false || $error !== '') json_response(['error'=>'Could not contact the AI provider: '.$error],502);
-    $payload = json_decode($response,true);
+    $ch = curl_init($url);$response='';$overflow=false;$maxBytes=1024*1024;
+    curl_setopt_array($ch, [CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>15,CURLOPT_CONNECTTIMEOUT=>8,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use(&$response,&$overflow,$maxBytes):int{if(strlen($response)+strlen($chunk)>$maxBytes){$overflow=true;return 0;}$response.=$chunk;return strlen($chunk);}]);
+    $ok = curl_exec($ch); $status = (int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); $error = curl_error($ch); curl_close($ch);
+    if ($ok === false || $error !== '') json_response(['error'=>$overflow?'AI provider response exceeded the safety limit.':'Could not contact the AI provider.'],502);
+    $payload = json_decode($response,true);if(!is_array($payload))json_response(['error'=>'The AI provider returned an invalid response.'],502);
     $providerMessage = trim((string)($payload['error']['message'] ?? $payload['message'] ?? ''));
     if ($provider === 'google' && stripos($providerMessage,'location is not supported') !== false) {
+        $_SESSION['validated_ai_key']=['fingerprint'=>ai_key_fingerprint($key),'time'=>time()];
         json_response([
             'ok'=>true,
             'valid'=>true,
@@ -60,13 +62,15 @@ if (($data['action'] ?? '') === 'test_ai_key') {
         $detail=$providerMessage!==''?' '.substr($providerMessage,0,300):'';
         json_response(['error'=>'The AI provider returned HTTP '.$status.'.'.$detail],502);
     }
+    $_SESSION['validated_ai_key']=['fingerprint'=>ai_key_fingerprint($key),'time'=>time()];
     json_response(['ok'=>true,'valid'=>true,'message'=>($provider === 'google' ? 'Google Gemini' : 'OpenRouter').' API key is valid for this account.']);
 }
 if ($key !== '') {
     $current=user_record((int)$user['id']); $currentFingerprint=(string)($current['ai_key_fingerprint']??'');$candidateFingerprints=ai_key_fingerprints($key);
+    $validated=$_SESSION['validated_ai_key']??[];if($currentFingerprint===''&&(!is_array($validated)||time()-(int)($validated['time']??0)>600||!in_array((string)($validated['fingerprint']??''),$candidateFingerprints,true)))json_response(['error'=>'Check and validate this API key before saving it.'],422);
     if($currentFingerprint!==''&&!in_array($currentFingerprint,$candidateFingerprints,true)) json_response(['error'=>'Remove the currently bound API key before saving a different key.'],409);
     $q = db()->prepare('UPDATE users SET ai_provider=?, ai_api_key=?, ai_key_fingerprint=? WHERE id=?');
-    $q->execute([$provider, encrypt_secret($key), ai_key_fingerprint($key), $user['id']]);
+    try{$q->execute([$provider, encrypt_secret($key), ai_key_fingerprint($key), $user['id']]);}catch(PDOException $error){if($error->getCode()==='23000')json_response(['error'=>'This API key is already bound to another ESPForge account.'],409);throw $error;}unset($_SESSION['validated_ai_key']);
 } elseif ($provider !== null) {
     $q = db()->prepare('UPDATE users SET ai_provider=? WHERE id=?');
     $q->execute([$provider, $user['id']]);

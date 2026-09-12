@@ -2,6 +2,7 @@
 require __DIR__ . '/../../src/bootstrap.php';
 require __DIR__ . '/../../src/GitHubClient.php';
 require __DIR__ . '/../../src/WorkflowEngine.php';
+require_method('GET','POST');
 $user = require_user();
 verify_csrf();
 rate_limit('projects', $_SERVER['REQUEST_METHOD'] === 'GET' ? 60 : 12, 60);

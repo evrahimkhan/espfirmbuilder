@@ -1,5 +1,6 @@
 <?php
 require __DIR__.'/../../src/bootstrap.php';
+require_method('GET','POST');
 $user=require_user();
 verify_csrf();
 if($_SERVER['REQUEST_METHOD']==='GET'){

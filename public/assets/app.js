@@ -31,10 +31,12 @@ modeButton.onclick=()=>setMode(mode==='register'?'login':'register');
 forgotButton.onclick=()=>setMode('forgot');
 resendButton.onclick=()=>setMode('verify');
 
-fetch('api/auth.php?action=session').then(response=>response.json()).then(data=>{
+const sessionReady=fetch('api/auth.php?action=session').then(response=>response.json()).then(data=>{
  csrf=data.csrf;
  if(data.user)document.querySelectorAll('[data-open-auth]').forEach(button=>{button.textContent='Open dashboard →';button.onclick=()=>location.href='dashboard.html'});
-}).catch(()=>{});
+ return data;
+});
+document.querySelectorAll('[data-oauth]').forEach(link=>link.onclick=async event=>{event.preventDefault();errorBox.textContent='';try{await sessionReady;const response=await fetch(`api/auth.php?action=${link.dataset.oauth}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}'}),output=await response.json();if(!response.ok||!output.authorization_url)throw Error(output.error||'Could not start account authorization.');location.assign(output.authorization_url)}catch(error){dialog.showModal();errorBox.textContent=error.message}});
 
 form.onsubmit=async event=>{
  event.preventDefault();errorBox.textContent='';
