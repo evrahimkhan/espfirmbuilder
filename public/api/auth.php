@@ -87,24 +87,22 @@ if (in_array($action, ['github', 'google'], true)) {
     require_method('POST');verify_csrf();
     $provider = $action;
     if (empty($config[$provider]['client_id'])) json_response(['error' => ucfirst($provider) . ' OAuth is not configured.'], 503);
-    $_SESSION['oauth_state'] = bin2hex(random_bytes(20)); $_SESSION['oauth_provider'] = $provider;
-    $currentUserId=isset($_SESSION['user']['id'])?(int)$_SESSION['user']['id']:0;
-    $_SESSION['oauth_link_user_id']=$currentUserId?:null;
-    // Bind account linking to this exact OAuth state. This survives the external
-    // redirect more reliably than a single mutable session value.
-    $_SESSION['oauth_link_users'][$_SESSION['oauth_state']]=$currentUserId;
+    $now=time();$states=is_array($_SESSION['oauth_states']??null)?$_SESSION['oauth_states']:[];
+    foreach($states as $key=>$record)if(!is_array($record)||$now-(int)($record['created_at']??0)>600)unset($states[$key]);
+    if(count($states)>=5)array_shift($states);
+    $oauthState=bin2hex(random_bytes(20));$currentUserId=isset($_SESSION['user']['id'])?(int)$_SESSION['user']['id']:0;
     $base = $provider === 'github' ? 'https://github.com/login/oauth/authorize' : 'https://accounts.google.com/o/oauth2/v2/auth';
     $elevatedDelete=$provider==='github'&&($_GET['capability']??'')==='delete_fork';
+    $states[$oauthState]=['provider'=>$provider,'user_id'=>$currentUserId,'delete_scope'=>$elevatedDelete,'created_at'=>$now];$_SESSION['oauth_states']=$states;
     $scope = $provider === 'github' ? 'read:user user:email repo workflow'.($elevatedDelete?' delete_repo':'') : 'openid email profile';
-    $params = ['client_id'=>$config[$provider]['client_id'], 'redirect_uri'=>$config[$provider]['redirect_uri'], 'scope'=>$scope, 'state'=>$_SESSION['oauth_state'], 'response_type'=>'code'];
-    $_SESSION['oauth_delete_states'][$_SESSION['oauth_state']]=$elevatedDelete;
+    $params = ['client_id'=>$config[$provider]['client_id'], 'redirect_uri'=>$config[$provider]['redirect_uri'], 'scope'=>$scope, 'state'=>$oauthState, 'response_type'=>'code'];
     if ($provider === 'google') $params['access_type'] = 'online';
     json_response(['authorization_url'=>$base.'?'.http_build_query($params)]);
 }
 
 if (in_array($action, ['github_callback', 'google_callback'], true)) {
-    $provider = str_replace('_callback', '', $action); $oauthState=(string)($_GET['state']??'');
-    if (!hash_equals($_SESSION['oauth_state'] ?? '', $oauthState) || ($_SESSION['oauth_provider'] ?? '') !== $provider) oauth_dashboard_error('The sign-in request expired or failed its security check. Please try connecting again.');
+    $provider = str_replace('_callback', '', $action); $oauthState=(string)($_GET['state']??'');$oauthRecord=$_SESSION['oauth_states'][$oauthState]??null;
+    if (!is_array($oauthRecord)||!hash_equals((string)($oauthRecord['provider']??''),$provider)||time()-(int)($oauthRecord['created_at']??0)>600) oauth_dashboard_error('The sign-in request expired or failed its security check. Please try connecting again.');
     if (empty($_GET['code'])) oauth_dashboard_error('Authorization was cancelled. No account changes were made.');
     $tokenUrl = $provider === 'github' ? 'https://github.com/login/oauth/access_token' : 'https://oauth2.googleapis.com/token';
     $payload = ['client_id'=>$config[$provider]['client_id'], 'client_secret'=>$config[$provider]['client_secret'], 'code'=>$_GET['code'], 'redirect_uri'=>$config[$provider]['redirect_uri']];
@@ -142,7 +140,7 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
     $q=db()->prepare('SELECT * FROM users WHERE email=? LIMIT 1'); $q->execute([$email]); $emailRecord=$q->fetch();
     $name=trim(preg_replace('/[\x00-\x1F\x7F]+/u',' ',(string)($profile['name']??$profile['login']??explode('@',$email)[0]))??'');$name=$name!==''?$name:'ESPForge user';$name=preg_replace('/^(.{0,120}).*$/us','$1',$name)??'ESPForge user';
     $linkRecord=null;
-    $linkId=(int)($_SESSION['oauth_link_users'][$oauthState]??$_SESSION['oauth_link_user_id']??$_SESSION['user']['id']??0);
+    $linkId=(int)($oauthRecord['user_id']??0);
     if($linkId){ $q=db()->prepare('SELECT * FROM users WHERE id=?'); $q->execute([$linkId]); $linkRecord=$q->fetch(); }
     try {
         if($linkRecord){
@@ -185,7 +183,7 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         error_log('ESPForge OAuth account link failed: '.$e->getMessage());
         oauth_dashboard_error('This provider identity is already linked to another account. Sign out and use the originally linked account.');
     }
-    db()->prepare('UPDATE users SET email_verified_at=COALESCE(email_verified_at,NOW()) WHERE id=?')->execute([$id]);$deleteScope=!empty($_SESSION['oauth_delete_states'][$oauthState]);
-    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_delete_states'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider,'delete_scope'=>$deleteScope]); header('Location: ../dashboard.html'); exit;
+    db()->prepare('UPDATE users SET email_verified_at=COALESCE(email_verified_at,NOW()) WHERE id=?')->execute([$id]);$deleteScope=!empty($oauthRecord['delete_scope']);
+    unset($_SESSION['oauth_states'][$oauthState]); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider,'delete_scope'=>$deleteScope]); header('Location: ../dashboard.html'); exit;
 }
 json_response(['error' => 'Unknown action'], 404);

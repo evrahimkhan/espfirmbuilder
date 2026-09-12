@@ -60,16 +60,17 @@ function verify_csrf(): void { verify_csrf_value($_SERVER['HTTP_X_CSRF_TOKEN']??
 function require_user(): array { if(empty($_SESSION['user'])) json_response(['error'=>'Authentication required'],401); $q=db()->prepare('SELECT session_version FROM users WHERE id=?');$q->execute([$_SESSION['user']['id']]);$version=$q->fetchColumn();if($version===false||(int)$version!==(int)($_SESSION['session_version']??0)){$_SESSION=[];session_regenerate_id(true);json_response(['error'=>'Your session is no longer valid. Please sign in again.'],401);} return $_SESSION['user']; }
 function require_recent_auth(int $maxAge=1800): void { if(time()-(int)($_SESSION['authenticated_at']??0)>$maxAge) json_response(['error'=>'For your security, sign out and sign in again before performing this action.','code'=>'recent_auth_required'],428); }
 
-/** Hold a non-blocking process lock until the returned handle leaves scope. */
-function try_operation_lock(string $name) {
-    $directory=rtrim(sys_get_temp_dir(),DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'espforge-operation-locks';
-    if(!is_dir($directory)&&!@mkdir($directory,0700,true)&&!is_dir($directory))return false;
-    $path=$directory.DIRECTORY_SEPARATOR.hash('sha256',$name).'.lock';$handle=@fopen($path,'c');
-    if($handle===false)return false;
-    if(!flock($handle,LOCK_EX|LOCK_NB)){fclose($handle);return false;}
-    return $handle;
+/** Connection-scoped MySQL advisory lock shared by every PHP host using this database. */
+final class DatabaseOperationLock {
+    public function __construct(private PDO $pdo,private string $name){}
+    public function __destruct(){try{$q=$this->pdo->prepare('SELECT RELEASE_LOCK(?)');$q->execute([$this->name]);}catch(Throwable $error){error_log('ESPForge operation lock release failed: '.$error->getMessage());}}
 }
-function operation_lock(string $name){$handle=try_operation_lock($name);if($handle===false)json_response(['error'=>'Another operation is already configuring this repository. Wait for it to finish and try again.'],409);return $handle;}
+function try_operation_lock(string $name): DatabaseOperationLock|false {
+    $lockName='espforge:'.substr(hash('sha256',$name),0,54);$pdo=db();
+    try{$q=$pdo->prepare('SELECT GET_LOCK(?,0)');$q->execute([$lockName]);return (int)$q->fetchColumn()===1?new DatabaseOperationLock($pdo,$lockName):false;}
+    catch(Throwable $error){error_log('ESPForge operation lock acquisition failed: '.$error->getMessage());return false;}
+}
+function operation_lock(string $name): DatabaseOperationLock{$handle=try_operation_lock($name);if($handle===false)json_response(['error'=>'Another operation is already configuring this repository. Wait for it to finish and try again.'],409);return $handle;}
 
 /** Fixed-window, file-backed limiter suitable for a single shared-hosting instance. */
 function rate_limit(string $bucket, int $limit, int $windowSeconds, ?string $identity = null): void {
