@@ -25,7 +25,7 @@ Requirements: PHP 8.1+, MySQL 8+, and the OpenSSL/PDO MySQL extensions.
 mysql -u root -p -e 'CREATE DATABASE espforge CHARACTER SET utf8mb4'
 mysql -u root -p espforge < database/schema.sql
 cp config/config.example.php config/config.php # already present for convenience
-php -S 0.0.0.0:8080 -t public
+APP_ENV=development php -S 0.0.0.0:8080 -t public
 ```
 
 Open `http://localhost:8080`. Configure settings through environment variables where possible:

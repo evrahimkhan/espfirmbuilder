@@ -19,6 +19,13 @@ set_exception_handler(static function (Throwable $error) use ($isProduction): ne
     exit;
 });
 
+if($isProduction){
+    $appUrl=(string)($config['app']['url']??'');$encryptionKey=(string)($config['security']['encryption_key']??'');
+    if(!str_starts_with(strtolower($appUrl),'https://')) throw new RuntimeException('Production APP_URL must use HTTPS.');
+    if(strlen($encryptionKey)<32||str_contains($encryptionKey,'replace-with')) throw new RuntimeException('Production APP_KEY is missing or unsafe.');
+    if(!str_starts_with((string)($config['database']['dsn']??''),'mysql:')) throw new RuntimeException('Production database configuration is invalid.');
+}
+
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
 ini_set('session.cookie_httponly', '1');

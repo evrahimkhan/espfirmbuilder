@@ -22,4 +22,7 @@ return [
         'client_id' => '',
         'client_secret' => '',
     ],
+    'mail' => [
+        'from' => 'no-reply@YOUR_ACCOUNT.alwaysdata.net',
+    ],
 ];

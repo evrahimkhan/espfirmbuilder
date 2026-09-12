@@ -52,7 +52,7 @@ if(in_array($data['action']??'',['remove','delete','sync'],true)){
         json_response(['ok'=>true,'message'=>$message]);
     } catch(RuntimeException $e){
         $message=$action==='delete'&&$e->getCode()===403
-            ?'GitHub denied repository deletion. Reconnect GitHub from Settings to grant the delete_repo permission, then try again.'
+            ?'GitHub denied repository deletion. In Settings, choose “Grant optional fork-deletion access”, approve GitHub, and try again.'
             :$e->getMessage();
         json_response(['error'=>$message],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502);
     }

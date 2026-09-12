@@ -89,8 +89,10 @@ if (in_array($action, ['github', 'google'], true)) {
     // redirect more reliably than a single mutable session value.
     $_SESSION['oauth_link_users'][$_SESSION['oauth_state']]=$currentUserId;
     $base = $provider === 'github' ? 'https://github.com/login/oauth/authorize' : 'https://accounts.google.com/o/oauth2/v2/auth';
-    $scope = $provider === 'github' ? 'read:user user:email repo workflow delete_repo' : 'openid email profile';
+    $elevatedDelete=$provider==='github'&&($_GET['capability']??'')==='delete_fork';
+    $scope = $provider === 'github' ? 'read:user user:email repo workflow'.($elevatedDelete?' delete_repo':'') : 'openid email profile';
     $params = ['client_id'=>$config[$provider]['client_id'], 'redirect_uri'=>$config[$provider]['redirect_uri'], 'scope'=>$scope, 'state'=>$_SESSION['oauth_state'], 'response_type'=>'code'];
+    $_SESSION['oauth_delete_states'][$_SESSION['oauth_state']]=$elevatedDelete;
     if ($provider === 'google') $params['access_type'] = 'online';
     header('Location: ' . $base . '?' . http_build_query($params)); exit;
 }
@@ -185,7 +187,7 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         error_log('ESPForge OAuth account link failed: '.$e->getMessage());
         oauth_dashboard_error('This provider identity is already linked to another account. Sign out and use the originally linked account.');
     }
-    db()->prepare('UPDATE users SET email_verified_at=COALESCE(email_verified_at,NOW()) WHERE id=?')->execute([$id]);
-    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider]); header('Location: ../dashboard.html'); exit;
+    db()->prepare('UPDATE users SET email_verified_at=COALESCE(email_verified_at,NOW()) WHERE id=?')->execute([$id]);$deleteScope=!empty($_SESSION['oauth_delete_states'][$oauthState]);
+    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_delete_states'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider,'delete_scope'=>$deleteScope]); header('Location: ../dashboard.html'); exit;
 }
 json_response(['error' => 'Unknown action'], 404);
