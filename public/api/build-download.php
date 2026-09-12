@@ -14,9 +14,11 @@ if($kind==='artifact'){
  curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>30,CURLOPT_FOLLOWLOCATION=>false]);
  $raw=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); curl_close($ch); $data=json_decode($raw?:'[]',true);
  $artifacts=array_values(array_filter($data['artifacts']??[],fn($artifact)=>empty($artifact['expired'])));
- if($status<200||$status>=300||empty($artifacts[0]['id'])) json_response(['error'=>'No build artifact is available yet.'],404);
- if((int)($artifacts[0]['size_in_bytes']??0)>100*1024*1024) json_response(['error'=>'The artifact exceeds the 100 MB download safety limit.'],413);
- $url='https://api.github.com/repos/'.$build['full_name'].'/actions/artifacts/'.(int)$artifacts[0]['id'].'/zip';
+ if($status<200||$status>=300||!$artifacts) json_response(['error'=>'No build artifact is available yet.'],404);
+ $preferred=array_values(array_filter($artifacts,fn($artifact)=>($artifact['name']??'')==='espforge-firmware'));
+ if(count($preferred)===1)$artifact=$preferred[0];elseif(count($artifacts)===1)$artifact=$artifacts[0];else json_response(['error'=>'This run produced multiple artifacts and no unique ESPForge firmware artifact could be identified. Open the GitHub run to choose one safely.'],409);
+ if((int)($artifact['size_in_bytes']??0)>100*1024*1024) json_response(['error'=>'The artifact exceeds the 100 MB download safety limit.'],413);
+ $url='https://api.github.com/repos/'.$build['full_name'].'/actions/artifacts/'.(int)$artifact['id'].'/zip';
  $filename='espforge-build-'.$id.'-artifact.zip';
 }else{
  $url='https://api.github.com/repos/'.$build['full_name'].'/actions/runs/'.$run.'/logs';

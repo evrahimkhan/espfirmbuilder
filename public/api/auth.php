@@ -45,7 +45,7 @@ if ($action === 'request_password_reset') {
 if ($action === 'reset_password') {
     rate_limit('password-reset-complete',8,3600); verify_csrf(); $data=body();
     $token=(string)($data['token']??'');$password=(string)($data['password']??'');
-    if(!preg_match('/^[a-f0-9]{64}$/',$token)||strlen($password)<8) json_response(['error'=>'The reset link is invalid, or the password is shorter than 8 characters.'],422);
+    if(!preg_match('/^[a-f0-9]{64}$/',$token)||strlen($password)<8||strlen($password)>1024) json_response(['error'=>'The reset link is invalid, or the password length is outside the allowed range.'],422);
     $hash=hash('sha256',$token);$pdo=db();$pdo->beginTransaction();
     try{$q=$pdo->prepare('SELECT * FROM password_reset_tokens WHERE token_hash=? AND used_at IS NULL AND expires_at>NOW() FOR UPDATE');$q->execute([$hash]);$reset=$q->fetch();
         if(!$reset){$pdo->rollBack();json_response(['error'=>'This password reset link is invalid or has expired.'],422);}
@@ -59,10 +59,10 @@ if ($action === 'register' || $action === 'login') {
     rate_limit('auth-'.$action, 8, 900);
     verify_csrf(); $data = body();
     $email = filter_var($data['email'] ?? '', FILTER_VALIDATE_EMAIL); $password = $data['password'] ?? '';
-    if (!$email || strlen($password) < 8) json_response(['error' => 'Enter a valid email and an 8+ character password.'], 422);
+    if (!$email || strlen((string)$email)>255 || strlen($password)<8 || strlen($password)>1024) json_response(['error' => 'Enter a valid email and a password between 8 and 1024 characters.'], 422);
     try {
         if ($action === 'register') {
-            $name = trim($data['name'] ?? ''); if (!$name) json_response(['error' => 'Name is required.'], 422);
+            $name = trim((string)($data['name'] ?? '')); if($name===''||strlen($name)>120) json_response(['error' => 'Name is required and must be 120 characters or fewer.'], 422);
             if(!filter_var((string)($config['mail']['from']??''),FILTER_VALIDATE_EMAIL)) json_response(['error'=>'Account registration is temporarily unavailable because email delivery is not configured.'],503);
             $q = db()->prepare('INSERT INTO users(email,name,password_hash) VALUES(?,?,?)');
             $q->execute([$email, $name, password_hash($password, PASSWORD_DEFAULT)]); $id = (int)db()->lastInsertId();
@@ -134,11 +134,12 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         if(!$email && !empty($profile['login']) && $providerId) $email=$providerId.'+'.preg_replace('/[^A-Za-z0-9-]/','',$profile['login']).'@users.noreply.github.com';
         if(!$email) error_log('ESPForge GitHub email lookup failed with HTTP '.$emailStatus);
     }
-    if(!$providerId || !$email) oauth_dashboard_error('The provider did not return a verified, usable account identity.');
+    $email=is_string($email)?filter_var($email,FILTER_VALIDATE_EMAIL):false;
+    if(!$providerId||!$email||strlen($email)>255) oauth_dashboard_error('The provider did not return a verified, usable account identity.');
     $idColumn=$provider.'_id';
     $q=db()->prepare("SELECT * FROM users WHERE {$idColumn}=? LIMIT 1"); $q->execute([$providerId]); $providerRecord=$q->fetch();
     $q=db()->prepare('SELECT * FROM users WHERE email=? LIMIT 1'); $q->execute([$email]); $emailRecord=$q->fetch();
-    $name=$profile['name']??$profile['login']??explode('@',$email)[0];
+    $name=trim(preg_replace('/[\x00-\x1F\x7F]+/u',' ',(string)($profile['name']??$profile['login']??explode('@',$email)[0]))??'');$name=$name!==''?$name:'ESPForge user';$name=preg_replace('/^(.{0,120}).*$/us','$1',$name)??'ESPForge user';
     $linkRecord=null;
     $linkId=(int)($_SESSION['oauth_link_users'][$oauthState]??$_SESSION['oauth_link_user_id']??$_SESSION['user']['id']??0);
     if($linkId){ $q=db()->prepare('SELECT * FROM users WHERE id=?'); $q->execute([$linkId]); $linkRecord=$q->fetch(); }
