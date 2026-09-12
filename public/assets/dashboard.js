@@ -12,12 +12,13 @@ let dialogResolve=null;function showDialog(message,{title='ESPForge',confirmText
 async function load(){
  const session=await api('api/auth.php?action=session');csrf=session.csrf;if(!session.user){location.href='index.html';return}
  $('#username').textContent=session.user.name;$('#email').textContent=session.user.email;$('#avatar').textContent=session.user.name[0].toUpperCase();
- const settingsRequest=api('api/settings.php'),projectsRequest=api('api/projects.php'),buildsRequest=api('api/builds.php?refresh=1');
+ const settingsRequest=api('api/settings.php'),projectsRequest=api('api/projects.php'),buildsRequest=api('api/builds.php?refresh=1'),flashesRequest=api('api/flashes.php');
  const s=await settingsRequest;$('#github-status').textContent=s.settings.github_connected?'✓ GitHub connected':'GitHub is not connected';$('#github-status').className=s.settings.github_connected?'connected':'';
  if(s.settings.ai_provider)$('#settings-form [name=ai_provider]').value=s.settings.ai_provider;
  const keyStatus=$('#api-key-status');if(keyStatus&&!keyStatus.dataset.checked)keyStatus.textContent=s.settings.ai_key_configured?'A saved API key is configured for this account.':'No API key is configured for this account.';$('#remove-ai-key').hidden=!s.settings.ai_key_configured;
  try{const p=await projectsRequest;repos=p.projects;renderRepos()}catch(error){console.error(error)}
  try{const b=await buildsRequest;$('#build-count').textContent=b.total??b.builds.length;$('#success-rate').textContent=b.success_rate==null?'—':`${b.success_rate}%`;renderBuilds(b.builds)}catch(error){console.error(error)}
+ try{const flashes=await flashesRequest;$('#flash-count').textContent=flashes.monthly_total??0}catch(error){console.error(error)}
 }
 const expandedBuilds=new Set(),buildJobCache=new Map();
 function jobDetails(jobs){return (jobs||[]).map(job=>`<div class="build-job"><b>${escapeHtml(job.name)}</b>${(job.steps||[]).map(step=>`<p><i class="step-state ${escapeHtml(step.conclusion||step.status)}"></i><span>${escapeHtml(step.name)}</span><small>${escapeHtml(step.conclusion||step.status)}</small></p>`).join('')}</div>`).join('')}
@@ -60,6 +61,7 @@ $('#connect-device').onclick=async()=>{
   loader=new ESPLoader({transport,baudrate:Number($('#baud').value||460800),terminal});const chip=await loader.main();terminal.writeLine(`Connected to ${chip}. Preparing flash…`);
   const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));const address=parseInt($('#offset').value,16);
   await loader.writeFlash({fileArray:[{data:binary,address}],flashSize:'keep',eraseAll:false,compress:true,reportProgress:(i,w,t)=>{button.textContent=`Flashing ${Math.round(w/t*100)}%`}});terminal.writeLine('Flash complete. Resetting device…');await transport.setDTR(false);await transport.setRTS(true);await new Promise(r=>setTimeout(r,100));await transport.setRTS(false);button.textContent='Flash complete ✓';
+  try{const result=await api('api/flashes.php',{method:'POST',body:JSON.stringify({chip:$('#chip').value,firmware_size:file.size,manifest_verified:Boolean(flashManifest)})});if(result.ok)$('#flash-count').textContent=Number($('#flash-count').textContent||0)+1}catch(reportError){console.error('Flash completion reporting failed',reportError)}
  }catch(e){log.textContent+='\nFlash failed: '+e.message;button.textContent='Try again'}finally{button.disabled=false}
 };
 load().catch(e=>console.error(e));setInterval(()=>{if($('#builds').classList.contains('active')&&!document.hidden)refreshBuilds()},2000);setInterval(()=>{if(!document.hidden)updateBuildTimers()},1000);

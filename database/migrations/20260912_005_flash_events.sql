@@ -1,0 +1,10 @@
+CREATE TABLE flash_events (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ user_id BIGINT UNSIGNED NOT NULL,
+ chip VARCHAR(32) NOT NULL,
+ firmware_size INT UNSIGNED NOT NULL,
+ manifest_verified TINYINT(1) NOT NULL DEFAULT 0,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+ INDEX ix_flash_events_user_time(user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
