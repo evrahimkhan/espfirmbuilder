@@ -8,8 +8,10 @@ function archive_safety_error(string $path,int $maxEntryBytes=104857600): ?strin
 }
 if(!class_exists('ZipArchive')) json_response(['error'=>'Secure artifact inspection is unavailable on this server.'],503);
 $user=require_user();
+if($_SERVER['REQUEST_METHOD']!=='POST') json_response(['error'=>'Downloads require a secure POST request.'],405);
+verify_csrf_value($_POST['csrf']??'');
 rate_limit('build-download',10,300);
-$id=(int)($_GET['build_id']??0); $kind=(string)($_GET['kind']??'artifact');
+$id=(int)($_POST['build_id']??0); $kind=(string)($_POST['kind']??'artifact');
 if(!in_array($kind,['artifact','logs'],true)) json_response(['error'=>'Invalid download type.'],422);
 $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?');
 $q->execute([$id,$user['id']]); $build=$q->fetch();
