@@ -68,7 +68,20 @@ final class TargetAnalyzer
         if(!$found) throw new RuntimeException('The selected hardware model is no longer present in the repository workflow.',409);
         $result=implode("\n",$lines);
         $result=preg_replace('/^name:.*$/m','name: ESPForge · '.str_replace(["\r","\n"],' ',$name),$result,1)??$result;
+        self::assertCompileOnlyWorkflow($result);
         return self::addBuildCorrelation($result);
+    }
+
+    private static function assertCompileOnlyWorkflow(string $yaml): void
+    {
+        $dangerous=[
+            '/\b(?:softprops\/action-gh-release|actions\/create-release|peaceiris\/actions-gh-pages)@/i',
+            '/\b(?:npm\s+publish|docker\s+(?:push|login)|gh\s+release|git\s+push)\b/i',
+            '/^\s*environment\s*:/mi', '/\bsecrets\s*\./i',
+            '/^\s*[a-z-]+\s*:\s*write\s*$/mi',
+        ];
+        foreach($dangerous as $pattern) if(preg_match($pattern,$yaml))
+            throw new RuntimeException('This repository matrix includes publishing, deployment, or secret-enabled behavior. ESPForge refused to execute it; use a compile-only workflow.',422);
     }
 
     private static function addBuildCorrelation(string $yaml): string

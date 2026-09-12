@@ -37,7 +37,7 @@ final class WorkflowEngine
           if-no-files-found: error
 YAML;
         if($framework==='esp-idf') return $header.<<<'YAML'
-      - uses: espressif/esp-idf-ci-action@v1
+      - uses: espressif/esp-idf-ci-action@e6f5c74232b1ccd4c97ed641f1e48553853f1fd5
         with:
           esp_idf_version: v5.5.1
           target: esp32

@@ -39,6 +39,7 @@ function body(): array { $raw=file_get_contents('php://input'); $decoded=json_de
 function csrf(): string { if(empty($_SESSION['csrf'])) $_SESSION['csrf']=bin2hex(random_bytes(24)); return $_SESSION['csrf']; }
 function verify_csrf(): void { $h=$_SERVER['HTTP_X_CSRF_TOKEN']??''; if(!is_string($h) || !hash_equals($_SESSION['csrf']??'', $h)) json_response(['error'=>'Invalid CSRF token'],419); }
 function require_user(): array { if(empty($_SESSION['user'])) json_response(['error'=>'Authentication required'],401); return $_SESSION['user']; }
+function require_recent_auth(int $maxAge=1800): void { if(time()-(int)($_SESSION['authenticated_at']??0)>$maxAge) json_response(['error'=>'For your security, sign out and sign in again before performing this action.','code'=>'recent_auth_required'],428); }
 
 /** Fixed-window, file-backed limiter suitable for a single shared-hosting instance. */
 function rate_limit(string $bucket, int $limit, int $windowSeconds, ?string $identity = null): void {

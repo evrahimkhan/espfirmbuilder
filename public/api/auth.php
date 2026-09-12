@@ -21,7 +21,7 @@ if ($action === 'register' || $action === 'login') {
             if (!$record || !password_verify($password, $record['password_hash'] ?? '')) json_response(['error' => 'Invalid email or password.'], 401);
             $id = (int)$record['id']; $name = $record['name'];
         }
-        session_regenerate_id(true); $_SESSION['user'] = ['id' => $id, 'name' => $name, 'email' => $email];
+        session_regenerate_id(true); $_SESSION['user'] = ['id' => $id, 'name' => $name, 'email' => $email]; $_SESSION['authenticated_at']=time(); audit_event('auth.'.$action);
         json_response(['user' => $_SESSION['user']]);
     } catch (PDOException $e) { json_response(['error' => $e->getCode() === '23000' ? 'Email already registered.' : 'Database unavailable.'], 409); }
 }
@@ -132,6 +132,6 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         error_log('ESPForge OAuth account link failed: '.$e->getMessage());
         oauth_dashboard_error('This provider identity is already linked to another account. Sign out and use the originally linked account.');
     }
-    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; header('Location: ../dashboard.html'); exit;
+    unset($_SESSION['oauth_link_users'][$oauthState],$_SESSION['oauth_state'],$_SESSION['oauth_provider'],$_SESSION['oauth_link_user_id']); session_regenerate_id(true); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider]); header('Location: ../dashboard.html'); exit;
 }
 json_response(['error' => 'Unknown action'], 404);

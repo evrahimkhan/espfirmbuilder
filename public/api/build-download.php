@@ -46,7 +46,7 @@ if($kind==='artifact'&&class_exists('ZipArchive')){
   }
   if($zipCount===1&&$innerIndex!==null){
    $stat=$zip->statIndex($innerIndex);$innerPath=tempnam(sys_get_temp_dir(),'espforge-inner-');$input=$zip->getStream((string)$stat['name']);$output=$innerPath!==false?fopen($innerPath,'w+b'):false;
-   if($input&&$output){$copied=stream_copy_to_stream($input,$output,$maxBytes+1);fclose($input);fclose($output);if($copied!==false&&$copied<=$maxBytes)$outputPath=$innerPath;else @unlink((string)$innerPath);}
+   if($input&&$output){$copied=stream_copy_to_stream($input,$output,$maxBytes+1);fclose($input);fclose($output);if($copied!==false&&$copied<=$maxBytes)$outputPath=$innerPath;else @unlink((string)$innerPath);}else{if(is_resource($input))fclose($input);if(is_resource($output))fclose($output);if($innerPath!==false)@unlink($innerPath);}
   }
   $zip->close();
  }
