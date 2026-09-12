@@ -11,6 +11,7 @@ foreach($workflows as $workflow){
     if(preg_match('/uses:\s+[^\s]+@(?![a-f0-9]{40}(?:\s|$))/i',$workflow)){fwrite(STDERR,"Generated workflow contains a mutable action reference.\n");exit(1);}
     if(preg_match('/curl[^\n|]*\|\s*(?:sh|bash)/i',$workflow)){fwrite(STDERR,"Generated workflow contains a remote shell pipeline.\n");exit(1);}
     if(!str_contains($workflow,"permissions:\n  contents: read")){fwrite(STDERR,"Generated workflow is not read-only.\n");exit(1);}
+    if(!str_contains($workflow,"persist-credentials: false\n          submodules: recursive")){fwrite(STDERR,"Generated workflow does not safely initialize library submodules.\n");exit(1);}
 }
 if(!str_contains($workflows[0],'platformio==6.1.19')){fwrite(STDERR,"PlatformIO is not pinned to the compatible release.\n");exit(1);}
 if(!str_contains($workflows[0],'python-version: "3.12"')){fwrite(STDERR,"PlatformIO Python is not pinned.\n");exit(1);}

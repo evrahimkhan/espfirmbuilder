@@ -16,7 +16,7 @@ final class WorkflowEngine
     {
         // Quote the trigger key and use an explicit empty mapping. This avoids YAML
         // 1.1 parsers treating `on` as a boolean and guarantees GitHub registers it.
-        $header="name: ESPForge firmware build\nrun-name: ESPForge build \${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n\n\"on\":\n  workflow_dispatch:\n    inputs:\n      espforge_build_uuid:\n        description: Unique ESPForge build identifier\n        required: true\n        type: string\n  repository_dispatch:\n    types: [espforge_build]\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: espforge-\${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n  cancel-in-progress: false\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683\n";
+        $header="name: ESPForge firmware build\nrun-name: ESPForge build \${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n\n\"on\":\n  workflow_dispatch:\n    inputs:\n      espforge_build_uuid:\n        description: Unique ESPForge build identifier\n        required: true\n        type: string\n  repository_dispatch:\n    types: [espforge_build]\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: espforge-\${{ inputs.espforge_build_uuid || github.event.client_payload.espforge_build_uuid }}\n  cancel-in-progress: false\n\njobs:\n  firmware:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683\n        with:\n          persist-credentials: false\n          submodules: recursive\n";
         if($framework==='platformio') return $header.<<<'YAML'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -154,7 +154,7 @@ YAML;
         $resolved=[];foreach($libraries as $library){$name=strtolower(strstr($library,'@',true)?:$library);if(!isset($resolved[$name]))$resolved[$name]=$library;}$libraries=array_values($resolved);
         $install=$libraries ? implode("\n",array_map(fn($lib)=>'          arduino-cli lib install '.escapeshellarg($lib),$libraries)) : '          echo "No registry libraries detected"';
         $hasLocalLibraries=count(array_filter($paths,fn($p)=>str_starts_with(strtolower($p),'libraries/')&&str_ends_with(strtolower($p),'/library.properties')))>0;
-        if($hasLocalLibraries)$install.="\n          mkdir -p \"\$HOME/Arduino/libraries\"\n          find Libraries -mindepth 2 -maxdepth 3 -type f -name library.properties -print0 | while IFS= read -r -d '' properties; do cp -R \"\$(dirname \"\$properties\")\" \"\$HOME/Arduino/libraries/\"; done";
+        if($hasLocalLibraries||count(array_filter($paths,fn($p)=>str_contains(strtolower($p),'/libraries/')))>0)$install.="\n          mkdir -p \"\$HOME/Arduino/libraries\"\n          find . -mindepth 2 -maxdepth 7 -type f -name library.properties -not -path './.git/*' -print0 | while IFS= read -r -d '' properties; do cp -R \"\$(dirname \"\$properties\")\" \"\$HOME/Arduino/libraries/\"; done";
         $hasZips=count(array_filter($paths,fn($p)=>str_starts_with(strtolower($p),'libraries/')&&str_ends_with(strtolower($p),'.zip')))>0;
         if($hasZips){
             $zipFilter=$isEsp32S3?" ! -iname '*TFT*'":'';
