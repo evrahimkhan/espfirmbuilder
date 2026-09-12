@@ -60,7 +60,8 @@ if(($data['action']??'')==='clear_logs'){
 if(($data['action']??'')==='cancel_build'){
  $id=(int)($data['build_id']??0);$q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?');$q->execute([$id,$user['id']]);$build=$q->fetch();
  if(!$build||empty($build['github_run_id'])) json_response(['error'=>'The running build could not be found.'],404);
- try{$github=new GitHubClient(github_token((int)$user['id']));$github->request('POST','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/cancel');db()->prepare("UPDATE builds SET status='completed',conclusion='cancelled',completed_at=NOW() WHERE id=?")->execute([$id]);json_response(['ok'=>true]);}catch(RuntimeException $e){if($e instanceof PDOException)throw $e;json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502);}
+ if(!in_array($build['status'],['queued','in_progress'],true)) json_response(['error'=>'This build is no longer active.'],409);
+ try{$github=new GitHubClient(github_token((int)$user['id']));$github->request('POST','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/cancel');db()->prepare("UPDATE builds SET logs='Cancellation requested.' WHERE id=?")->execute([$id]);audit_event('build.cancellation_requested',['build_id'=>$id,'repository'=>$build['full_name']]);unset($_SESSION['github_build_refresh']);json_response(['ok'=>true,'message'=>'Cancellation requested. GitHub will report the final state shortly.'],202);}catch(RuntimeException $e){if($e instanceof PDOException)throw $e;json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502);}
 }
 $repo=(int)($data['repo_id']??0); $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?'); $q->execute([$repo,$user['id']]); $repository=$q->fetch(); if(!$repository) json_response(['error'=>'Repository not found'],404);
 try {
