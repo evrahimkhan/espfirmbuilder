@@ -6,11 +6,18 @@ require __DIR__ . '/../../src/TargetAnalyzer.php';
 require __DIR__ . '/../../src/AITargetAnalyzer.php';
 $user=require_user();
 if($_SERVER['REQUEST_METHOD']==='GET'){
- rate_limit(($_GET['refresh']??'')==='1'?'build-refresh':'build-list',($_GET['refresh']??'')==='1'?40:60,60);
+ $requestBucket=isset($_GET['details'])?'build-details':(($_GET['refresh']??'')==='1'?'build-refresh':'build-list');
+ rate_limit($requestBucket,$requestBucket==='build-refresh'?40:60,60);
  if(isset($_GET['details'])){
   $id=(int)$_GET['details']; $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?'); $q->execute([$id,$user['id']]); $build=$q->fetch();
   if(!$build||empty($build['github_run_id'])) json_response(['error'=>'Build run details are not available.'],404);
-  try{$client=new GitHubClient(github_token((int)$user['id']));$jobs=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/jobs?per_page=100');json_response(['jobs'=>array_map(fn($job)=>['name'=>$job['name']??'Build','status'=>$job['status']??'queued','conclusion'=>$job['conclusion']??null,'steps'=>array_map(fn($step)=>['name'=>$step['name']??'Step','status'=>$step['status']??'queued','conclusion'=>$step['conclusion']??null],$job['steps']??[])],$jobs['jobs']??[])]);}catch(RuntimeException $e){if($e instanceof PDOException)throw $e;json_response(['error'=>$e->getMessage()],502);}
+  $cached=$_SESSION['build_job_cache'][$id]??null;
+  if(is_array($cached)&&time()-(int)($cached['time']??0)<5) json_response(['jobs'=>$cached['jobs']??[],'cached'=>true]);
+  try{
+   $client=new GitHubClient(github_token((int)$user['id']));$response=$client->request('GET','/repos/'.$build['full_name'].'/actions/runs/'.$build['github_run_id'].'/jobs?per_page=100');
+   $jobs=array_map(fn($job)=>['name'=>$job['name']??'Build','status'=>$job['status']??'queued','conclusion'=>$job['conclusion']??null,'steps'=>array_map(fn($step)=>['name'=>$step['name']??'Step','status'=>$step['status']??'queued','conclusion'=>$step['conclusion']??null],$job['steps']??[])],$response['jobs']??[]);
+   $_SESSION['build_job_cache'][$id]=['time'=>time(),'jobs'=>$jobs];if(count($_SESSION['build_job_cache'])>20){uasort($_SESSION['build_job_cache'],fn($a,$b)=>($b['time']??0)<=>($a['time']??0));$_SESSION['build_job_cache']=array_slice($_SESSION['build_job_cache'],0,20,true);}json_response(['jobs'=>$jobs,'cached'=>false]);
+  }catch(RuntimeException $e){if($e instanceof PDOException)throw $e;json_response(['error'=>$e->getMessage()],502);}
  }
  $q=db()->prepare("SELECT COUNT(*) total,SUM(b.status='completed') completed,SUM(b.status='completed' AND b.conclusion='success') successful FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? AND b.created_at>=DATE_FORMAT(CURRENT_DATE,'%Y-%m-01')");$q->execute([$user['id']]);$monthly=$q->fetch()?:[];$totalBuilds=(int)($monthly['total']??0);$completedBuilds=(int)($monthly['completed']??0);$successRate=$completedBuilds>0?(int)round(100*(int)($monthly['successful']??0)/$completedBuilds):null;
  $q=db()->prepare("SELECT b.*,UNIX_TIMESTAMP(b.created_at) created_epoch,UNIX_TIMESTAMP(b.completed_at) completed_epoch,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? AND b.status IN ('queued','in_progress') UNION ALL SELECT * FROM (SELECT b.*,UNIX_TIMESTAMP(b.created_at) created_epoch,UNIX_TIMESTAMP(b.completed_at) completed_epoch,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? AND b.status NOT IN ('queued','in_progress') ORDER BY b.id DESC LIMIT 30) completed ORDER BY id DESC"); $q->execute([$user['id'],$user['id']]);
