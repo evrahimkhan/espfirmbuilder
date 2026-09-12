@@ -89,6 +89,12 @@ try {
          $workflow=str_replace($marker,$step.$marker,$workflow);
      }
      if($target['type']==='esp-idf'&&!empty($target['idf_target'])) $workflow=preg_replace('/target:\s*esp32\b/','target: '.$target['idf_target'],$workflow,1)??$workflow;
+     $chip=(string)($target['idf_target']??'');
+     if($chip===''&&preg_match('/esp32(?::esp32)?:([a-z0-9]+)/i',(string)($target['fqbn']??''),$chipMatch)) $chip=strtolower($chipMatch[1]);
+     if($chip===''&&preg_match('/esp32(?:s2|s3|c3|c5|c6)?/i',(string)($target['id']??''),$chipMatch)) $chip=strtolower($chipMatch[0]);
+     if($chip==='') $chip='esp32';
+     $uploadMarker='      - uses: actions/upload-artifact@';
+     $workflow=str_replace($uploadMarker,WorkflowEngine::manifestStep($analysis['framework'],$chip).$uploadMarker,$workflow);
  }
  $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name'].' [skip ci]');
  $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$analysis['framework'],$workflow,'workflow_ready',$repo]);

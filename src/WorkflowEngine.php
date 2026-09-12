@@ -55,6 +55,44 @@ YAML;
         return $header.self::arduinoSteps($paths,$source);
     }
 
+    public static function manifestStep(string $framework,string $chip): string
+    {
+        $framework=preg_replace('/[^a-z0-9_-]/i','',$framework)?:'unknown';
+        $chip=preg_replace('/[^a-z0-9_-]/i','',$chip)?:'unknown';
+        return <<<YAML
+      - name: Generate ESPForge flashing manifest
+        env:
+          ESPFORGE_FRAMEWORK: "{$framework}"
+          ESPFORGE_CHIP: "{$chip}"
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          root = pathlib.Path("firmware-output")
+          files = []
+          for path in sorted(root.rglob("*.bin")):
+              data = path.read_bytes()
+              files.append({
+                  "path": path.relative_to(root).as_posix(),
+                  "size": len(data),
+                  "sha256": hashlib.sha256(data).hexdigest(),
+                  "offset": None
+              })
+          manifest = {
+              "schema": "https://espforge.dev/schemas/flash-manifest-v1.json",
+              "version": 1,
+              "chip": os.environ["ESPFORGE_CHIP"],
+              "framework": os.environ["ESPFORGE_FRAMEWORK"],
+              "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "files": files,
+              "warning": "Offsets are intentionally unset unless supplied by the project toolchain. Verify offsets before flashing."
+          }
+          root.mkdir(parents=True, exist_ok=True)
+          (root / "espforge-manifest.json").write_text(json.dumps(manifest, indent=2) + "\\n")
+          PY
+
+YAML;
+    }
+
     private static function arduinoSteps(array $paths,string $source): string
     {
         $legacy=count(array_filter($paths,fn($p)=>strtolower($p)==='libraries/platform.txt'))>0;
@@ -106,7 +144,7 @@ YAML;
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: espforge-firmware
-          path: firmware-output/*.bin
+          path: firmware-output/
           if-no-files-found: error
 YAML;
     }
