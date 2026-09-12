@@ -15,7 +15,7 @@ try{
     $required=[
         'users'=>['email_verified_at','session_version','ai_key_fingerprint'],
         'repositories'=>['user_id','full_name'],
-        'builds'=>['build_uuid','github_run_id','completed_at'],
+        'builds'=>['build_uuid','target_id','target_name','github_run_id','completed_at'],
         'audit_events'=>['event_type','metadata_json'],
         'password_reset_tokens'=>['token_hash','expires_at'],
         'email_verification_tokens'=>['token_hash','expires_at'],

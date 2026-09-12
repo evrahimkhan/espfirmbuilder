@@ -16,6 +16,12 @@ if(!in_array($kind,['artifact','logs'],true)) json_response(['error'=>'Invalid d
 $q=db()->prepare('SELECT b.*,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.id=? AND r.user_id=?');
 $q->execute([$id,$user['id']]); $build=$q->fetch();
 if(!$build||empty($build['github_run_id'])) json_response(['error'=>'Build run not found.'],404);
+$targetName=trim((string)($build['target_name']??''));
+if($targetName===''&&preg_match('/^Building selected model:\s*(.+)$/m',(string)($build['logs']??''),$targetMatch))$targetName=trim($targetMatch[1]);
+$repositoryName=basename(str_replace('\\','/',(string)$build['full_name']));
+$downloadBase=trim($repositoryName.($targetName!==''?'-'.$targetName:'-build-'.$id),'-');
+$downloadBase=preg_replace('/[^A-Za-z0-9_.-]+/','-',$downloadBase)?:'espforge-build-'.$id;
+$downloadBase=trim(substr($downloadBase,0,180),'.-')?:'espforge-build-'.$id;
 $token=github_token((int)$user['id']); $run=(int)$build['github_run_id'];
 $headers=['Accept: application/vnd.github+json','Authorization: Bearer '.$token,'User-Agent: ESPForge','X-GitHub-Api-Version: 2022-11-28'];
 if($kind==='artifact'){
@@ -28,10 +34,10 @@ if($kind==='artifact'){
  if(count($preferred)===1)$artifact=$preferred[0];elseif(count($artifacts)===1)$artifact=$artifacts[0];else json_response(['error'=>'This run produced multiple artifacts and no unique ESPForge firmware artifact could be identified. Open the GitHub run to choose one safely.'],409);
  if((int)($artifact['size_in_bytes']??0)>100*1024*1024) json_response(['error'=>'The artifact exceeds the 100 MB download safety limit.'],413);
  $url='https://api.github.com/repos/'.$build['full_name'].'/actions/artifacts/'.(int)$artifact['id'].'/zip';
- $filename='espforge-build-'.$id.'-artifact.zip';
+ $filename=$downloadBase.'-firmware.zip';
 }else{
  $url='https://api.github.com/repos/'.$build['full_name'].'/actions/runs/'.$run.'/logs';
- $filename='espforge-build-'.$id.'-error-logs.zip';
+ $filename=$downloadBase.'-error-logs.zip';
 }
 
 // Stream GitHub into a bounded temporary file. Never buffer an untrusted archive
@@ -55,7 +61,7 @@ if($kind==='artifact'&&class_exists('ZipArchive')){
    $stat=$zip->statIndex($index); if(!$stat||str_ends_with((string)$stat['name'],'/'))continue;
    $size=(int)($stat['size']??0);$compressed=max(1,(int)($stat['comp_size']??1));
    if($size>$maxBytes||$size/$compressed>100){$zip->close();@unlink($temporary);json_response(['error'=>'Artifact archive failed decompression safety checks.'],422);}
-   if(str_ends_with(strtolower((string)$stat['name']),'.zip')){$innerIndex=$index;$zipCount++;$filename=basename((string)$stat['name']);}
+   if(str_ends_with(strtolower((string)$stat['name']),'.zip')){$innerIndex=$index;$zipCount++;}
   }
   if($zipCount===1&&$innerIndex!==null){
    $stat=$zip->statIndex($innerIndex);$innerPath=tempnam(sys_get_temp_dir(),'espforge-inner-');if($innerPath!==false)register_shutdown_function(static function()use($innerPath):void{if(is_file($innerPath))@unlink($innerPath);});$input=$zip->getStream((string)$stat['name']);$output=$innerPath!==false?fopen($innerPath,'w+b'):false;
