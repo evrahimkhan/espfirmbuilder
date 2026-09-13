@@ -20,6 +20,7 @@ $asyncWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'#include <As
 if(!str_contains($asyncWorkflow,'b2e5f4f368b137442f66a9ba7242b8759e6aef59')){fwrite(STDERR,"AsyncTCP is not installed from its pinned upstream commit.\n");exit(1);}
 $jsonWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'#include <ArduinoJson.h>');
 if(!str_contains($jsonWorkflow,"'ArduinoJson@6.18.2'")){fwrite(STDERR,"ArduinoJson compatibility pin is missing.\n");exit(1);}
+if(str_contains($jsonWorkflow,'find . -mindepth 2 -maxdepth 7 -type f -name library.properties')){fwrite(STDERR,"Repository libraries can overwrite pinned dependency versions.\n");exit(1);}
 $multiSketch=WorkflowEngine::workflow('arduino',['TestFile.ino','esp32_marauder/esp32_marauder.ino','examples/Demo/Demo.ino'],'');
 if(!str_contains($multiSketch,"firmware-output 'esp32_marauder'")){fwrite(STDERR,"Arduino sketch selection chose a test/example instead of the primary sketch.\n");exit(1);}
 $namingStep=WorkflowEngine::artifactNamingStep('Marauder CYD 2 USB');
