@@ -24,12 +24,23 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
  $q=db()->prepare("SELECT COUNT(*) total,SUM(b.status='completed') completed,SUM(b.status='completed' AND b.conclusion='success') successful FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? AND b.created_at>=DATE_FORMAT(CURRENT_DATE,'%Y-%m-01')");$q->execute([$user['id']]);$monthly=$q->fetch()?:[];$totalBuilds=(int)($monthly['total']??0);$completedBuilds=(int)($monthly['completed']??0);$successRate=$completedBuilds>0?(int)round(100*(int)($monthly['successful']??0)/$completedBuilds):null;
  $q=db()->prepare("SELECT b.*,UNIX_TIMESTAMP(b.created_at) created_epoch,UNIX_TIMESTAMP(b.completed_at) completed_epoch,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? AND b.status IN ('queued','in_progress') UNION ALL SELECT * FROM (SELECT b.*,UNIX_TIMESTAMP(b.created_at) created_epoch,UNIX_TIMESTAMP(b.completed_at) completed_epoch,r.full_name FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE r.user_id=? AND b.status NOT IN ('queued','in_progress') ORDER BY b.id DESC LIMIT 30) completed ORDER BY id DESC"); $q->execute([$user['id'],$user['id']]);
  $builds=$q->fetchAll();
- if(($_GET['refresh']??'')==='1' && time()-(int)($_SESSION['github_build_refresh']??0)>=5 && time()>=(int)($_SESSION['github_build_backoff_until']??0)) try {
+ $forcedRefresh=($_GET['force']??'')==='1';
+ if(($_GET['refresh']??'')==='1' && ($forcedRefresh||(time()-(int)($_SESSION['github_build_refresh']??0)>=5 && time()>=(int)($_SESSION['github_build_backoff_until']??0)))) try {
   $_SESSION['github_build_refresh']=time();
   $client=new GitHubClient(github_token((int)$user['id'])); $runsByRepository=[];
   foreach($builds as &$build){
    if(!in_array($build['status'],['queued','in_progress'],true)) continue;
    $repository=$build['full_name'];
+   // A stored run ID is authoritative. Query that run directly before scanning
+   // workflow history so overwritten workflow metadata or pagination cannot leave
+   // a completed run stuck in ESPForge's queued state.
+   if(!empty($build['github_run_id'])){
+    try{
+     $run=$client->request('GET','/repos/'.$repository.'/actions/runs/'.(int)$build['github_run_id']);$completedAt=($run['status']??'')==='completed'?date('Y-m-d H:i:s',strtotime($run['updated_at']??'now')):null;
+     $build['status']=$run['status']??$build['status'];$build['conclusion']=$run['conclusion']??null;$build['artifact_url']=$run['html_url']??$build['artifact_url'];$build['completed_at']=$completedAt;$build['completed_epoch']=$completedAt?strtotime($run['updated_at']??'now'):null;
+     db()->prepare('UPDATE builds SET status=?,conclusion=?,artifact_url=?,completed_at=? WHERE id=?')->execute([$build['status'],$build['conclusion'],$build['artifact_url'],$completedAt,$build['id']]);continue;
+    }catch(RuntimeException $runError){if($runError->getCode()!==404)throw $runError;$build['status']='completed';$build['conclusion']='failure';$build['completed_at']=date('Y-m-d H:i:s');$build['completed_epoch']=time();db()->prepare("UPDATE builds SET status='completed',conclusion='failure',completed_at=NOW(),logs='The linked GitHub Actions run is no longer available.' WHERE id=?")->execute([$build['id']]);continue;}
+   }
    if(!array_key_exists($repository,$runsByRepository)){
     $response=$client->request('GET','/repos/'.$repository.'/actions/workflows/espforge-build.yml/runs?per_page=50');
     $runsByRepository[$repository]=$response['workflow_runs']??[];
@@ -56,7 +67,7 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
      if($runError->getCode()!==404)throw $runError;$build['status']='completed';$build['conclusion']='failure';$build['completed_at']=date('Y-m-d H:i:s');$build['completed_epoch']=time();db()->prepare("UPDATE builds SET status='completed',conclusion='failure',completed_at=NOW(),logs='The linked GitHub Actions run is no longer available.' WHERE id=?")->execute([$build['id']]);$matched=true;
     }
    }
-   if(!$matched&&empty($build['github_run_id'])&&strtotime($build['created_at'])<time()-7200){
+   if(!$matched&&empty($build['github_run_id'])&&(int)($build['created_epoch']??0)<time()-7200){
     $build['status']='completed';$build['conclusion']='timed_out';$build['completed_at']=date('Y-m-d H:i:s');$build['completed_epoch']=time();
     db()->prepare("UPDATE builds SET status='completed',conclusion='timed_out',completed_at=NOW(),logs='GitHub did not create a matching workflow run within two hours.' WHERE id=?")->execute([$build['id']]);
    }
