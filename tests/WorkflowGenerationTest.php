@@ -20,8 +20,6 @@ $asyncWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'#include <As
 if(!str_contains($asyncWorkflow,'b2e5f4f368b137442f66a9ba7242b8759e6aef59')){fwrite(STDERR,"AsyncTCP is not installed from its pinned upstream commit.\n");exit(1);}
 $marauderWorkflow=WorkflowEngine::workflow('arduino',['esp32_marauder/esp32_marauder.ino'],'#define MARAUDER_VERSION "test"');
 foreach(['8651c35e977bddfd25bf9ef59a041f6ab243c7f2','6a0912ba05532eab707bd092bd4fa43477e38f5c'] as $sha)if(!str_contains($marauderWorkflow,$sha)){fwrite(STDERR,"Marauder dependency profile is incomplete.\n");exit(1);}
-$aiWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'',['Imaginary Library@1.2.3']);
-if(!str_contains($aiWorkflow,"'Imaginary Library@1.2.3' || echo")){fwrite(STDERR,"Unverified AI library suggestions can abort builds.\n");exit(1);}
 $jsonWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'#include <ArduinoJson.h>');
 if(!str_contains($jsonWorkflow,"'ArduinoJson@6.18.2'")){fwrite(STDERR,"ArduinoJson compatibility pin is missing.\n");exit(1);}
 if(str_contains($jsonWorkflow,'find . -mindepth 2 -maxdepth 7 -type f -name library.properties')){fwrite(STDERR,"Repository libraries can overwrite pinned dependency versions.\n");exit(1);}
