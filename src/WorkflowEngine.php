@@ -106,8 +106,10 @@ YAML;
     {
         $marauder=str_contains($source,'MARAUDER_VERSION')||str_contains($source,'MARAUDER_CYD_');
         if($marauder&&str_contains($buildFlags,'MARAUDER_CYD_2USB')&&preg_match('/^esp32:esp32:d32(?::|$)/',$fqbn)){
-            if(str_contains($fqbn,'PartitionScheme=min_spiffs'))return str_replace('PartitionScheme=min_spiffs','PartitionScheme=huge_app',$fqbn);
-            if(!str_contains($fqbn,'PartitionScheme='))return $fqbn.':PartitionScheme=huge_app';
+            // The d32 board menu exposes no_ota (2 MiB application), but not
+            // huge_app. min_spiffs is 1,966,080 bytes and this profile exceeds it.
+            if(str_contains($fqbn,'PartitionScheme=min_spiffs'))return str_replace('PartitionScheme=min_spiffs','PartitionScheme=no_ota',$fqbn);
+            if(!str_contains($fqbn,'PartitionScheme='))return $fqbn.':PartitionScheme=no_ota';
         }
         return $fqbn;
     }

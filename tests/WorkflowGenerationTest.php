@@ -31,7 +31,7 @@ $compatibility=WorkflowEngine::sourceCompatibilityStep('#define MARAUDER_VERSION
 foreach(['EvilPortal.h','operationInProgress','marauder_ieee80211_raw_frame_sanity_check','HardwareSerial\\s+Serial2'] as $needle)if(!str_contains($compatibility,$needle)){fwrite(STDERR,"Source compatibility patch is incomplete.\n");exit(1);}
 if(str_contains($compatibility,"marauder_ieee80211_raw_frame_sanity_check(', 1)")){fwrite(STDERR,"Raw-frame compatibility rename does not update call sites.\n");exit(1);}
 $roomyFqbn=WorkflowEngine::compatibleFqbn('esp32:esp32:d32:PartitionScheme=min_spiffs','-DMARAUDER_CYD_2USB','#define MARAUDER_VERSION "test"');
-if($roomyFqbn!=='esp32:esp32:d32:PartitionScheme=huge_app'){fwrite(STDERR,"CYD 2 USB does not receive a sufficient application partition.\n");exit(1);}
+if($roomyFqbn!=='esp32:esp32:d32:PartitionScheme=no_ota'){fwrite(STDERR,"CYD 2 USB does not receive a valid, sufficient application partition.\n");exit(1);}
 if(WorkflowEngine::compatibleFqbn('esp32:esp32:d32:PartitionScheme=min_spiffs','-DOTHER_BOARD','#define MARAUDER_VERSION "test"')!=='esp32:esp32:d32:PartitionScheme=min_spiffs'){fwrite(STDERR,"Partition compatibility override leaked to another target.\n");exit(1);}
 $namingStep=WorkflowEngine::artifactNamingStep('Marauder CYD 2 USB');
 if(!str_contains($namingStep,'ESPFORGE_ARTIFACT_PREFIX: "Marauder-CYD-2-USB"')){fwrite(STDERR,"Hardware-target artifact naming is not sanitized or stable.\n");exit(1);}
