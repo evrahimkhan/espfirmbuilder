@@ -102,6 +102,16 @@ YAML;
 YAML;
     }
 
+    public static function compatibleFqbn(string $fqbn,string $buildFlags,string $source): string
+    {
+        $marauder=str_contains($source,'MARAUDER_VERSION')||str_contains($source,'MARAUDER_CYD_');
+        if($marauder&&str_contains($buildFlags,'MARAUDER_CYD_2USB')&&preg_match('/^esp32:esp32:d32(?::|$)/',$fqbn)){
+            if(str_contains($fqbn,'PartitionScheme=min_spiffs'))return str_replace('PartitionScheme=min_spiffs','PartitionScheme=huge_app',$fqbn);
+            if(!str_contains($fqbn,'PartitionScheme='))return $fqbn.':PartitionScheme=huge_app';
+        }
+        return $fqbn;
+    }
+
     public static function artifactNamingStep(string $targetName): string
     {
         $prefix=trim(preg_replace('/[^A-Za-z0-9_.-]+/','-',$targetName)??'','.-');if($prefix==='')$prefix='firmware';$prefix=substr($prefix,0,80);

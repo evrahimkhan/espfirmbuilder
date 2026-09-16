@@ -123,8 +123,10 @@ try {
      if($targetFramework==='arduino'&&!empty($target['tft_setup'])){$setup=escapeshellarg((string)$target['tft_setup']);$tftStep="      - name: Configure display for selected hardware\n        run: cp {$setup} \"\$HOME/Arduino/libraries/TFT_eSPI/User_Setup.h\"\n";$workflow=str_replace('      - name: Compile firmware',$tftStep.'      - name: Compile firmware',$workflow);}
      if(in_array($target['type'],['platformio','platformio_disabled'],true)) $workflow=str_replace('run: pio run','run: pio run -e '.escapeshellarg($target['environment']),$workflow);
      if(in_array($target['type'],['arduino','arduino_define'],true)&&!empty($target['fqbn'])){
-         $replacement='--fqbn "'.$target['fqbn'].'"';
-         if(!empty($target['build_flags'])) $replacement.=' --build-property compiler.cpp.extra_flags="'.$target['build_flags'].'"';
+         $buildFlags=(string)($target['build_flags']??'');
+         $compatibleFqbn=WorkflowEngine::compatibleFqbn((string)$target['fqbn'],$buildFlags,$source);
+         $replacement='--fqbn "'.$compatibleFqbn.'"';
+         if($buildFlags!=='') $replacement.=' --build-property compiler.cpp.extra_flags="'.$buildFlags.'"';
          $workflow=preg_replace('/--fqbn "[^"]+"/',$replacement,$workflow,1)??$workflow;
      }
      $step=TargetAnalyzer::configurationStep($target,$targets);
