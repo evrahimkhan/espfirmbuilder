@@ -29,6 +29,7 @@ $multiSketch=WorkflowEngine::workflow('arduino',['TestFile.ino','esp32_marauder/
 if(!str_contains($multiSketch,"firmware-output 'esp32_marauder'")){fwrite(STDERR,"Arduino sketch selection chose a test/example instead of the primary sketch.\n");exit(1);}
 $compatibility=WorkflowEngine::sourceCompatibilityStep('#define MARAUDER_VERSION "test"\nchar index_html[MAX_HTML_SIZE] = "TEST";\nHardwareSerial Serial2(GPS_SERIAL_INDEX);');
 foreach(['EvilPortal.h','operationInProgress','marauder_ieee80211_raw_frame_sanity_check','HardwareSerial\\s+Serial2'] as $needle)if(!str_contains($compatibility,$needle)){fwrite(STDERR,"Source compatibility patch is incomplete.\n");exit(1);}
+if(str_contains($compatibility,"marauder_ieee80211_raw_frame_sanity_check(', 1)")){fwrite(STDERR,"Raw-frame compatibility rename does not update call sites.\n");exit(1);}
 $namingStep=WorkflowEngine::artifactNamingStep('Marauder CYD 2 USB');
 if(!str_contains($namingStep,'ESPFORGE_ARTIFACT_PREFIX: "Marauder-CYD-2-USB"')){fwrite(STDERR,"Hardware-target artifact naming is not sanitized or stable.\n");exit(1);}
 foreach(['"bootloader", ".bin"','"partitions", ".bin"','"merged", ".bin"','"application", ".bin"'] as $role)if(!str_contains($namingStep,$role)){fwrite(STDERR,"Artifact role naming is incomplete.\n");exit(1);}

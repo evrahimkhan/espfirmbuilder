@@ -87,7 +87,10 @@ YAML;
               implementation = wifi_cpp.read_text(errors="ignore")
               additions = ''.join(f'bool {name} = {value};\n' for name, value in definitions if not re.search(rf'(?m)^\s*bool\s+{name}\s*=', implementation))
               if additions: implementation = implementation.replace('#include "WiFiScan.h"', '#include "WiFiScan.h"\n\n' + additions.rstrip(), 1)
-              implementation = implementation.replace('ieee80211_raw_frame_sanity_check(', 'marauder_ieee80211_raw_frame_sanity_check(', 1)
+              # Rename the project implementation and every project call site together.
+              # Renaming only the first occurrence leaves RunSetup() referring to the
+              # ESP-IDF symbol that is intentionally hidden by the C declaration order.
+              implementation = implementation.replace('ieee80211_raw_frame_sanity_check(', 'marauder_ieee80211_raw_frame_sanity_check(')
               wifi_cpp.write_text(implementation)
           gps = root / "GpsInterface.cpp"
           if gps.is_file():
