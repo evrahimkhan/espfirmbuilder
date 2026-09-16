@@ -33,7 +33,8 @@ if(str_contains($compatibility,"marauder_ieee80211_raw_frame_sanity_check(', 1)"
 if(!str_contains($compatibility,'#if SOC_UART_NUM <= 2')){fwrite(STDERR,"Serial2 compatibility does not preserve two-UART targets.\n");exit(1);}
 $roomyFqbn=WorkflowEngine::compatibleFqbn('esp32:esp32:d32:PartitionScheme=min_spiffs','-DMARAUDER_CYD_2USB','#define MARAUDER_VERSION "test"');
 if($roomyFqbn!=='esp32:esp32:d32:PartitionScheme=no_ota'){fwrite(STDERR,"CYD 2 USB does not receive a valid, sufficient application partition.\n");exit(1);}
-if(WorkflowEngine::compatibleFqbn('esp32:esp32:d32:PartitionScheme=min_spiffs','-DOTHER_BOARD','#define MARAUDER_VERSION "test"')!=='esp32:esp32:d32:PartitionScheme=min_spiffs'){fwrite(STDERR,"Partition compatibility override leaked to another target.\n");exit(1);}
+if(WorkflowEngine::compatibleFqbn('esp32:esp32:d32:PartitionScheme=min_spiffs','-DMARAUDER_V4','#define MARAUDER_VERSION "test"')!=='esp32:esp32:d32:PartitionScheme=no_ota'){fwrite(STDERR,"Marauder V4 does not receive a sufficient application partition.\n");exit(1);}
+if(WorkflowEngine::compatibleFqbn('esp32:esp32:d32:PartitionScheme=min_spiffs','-DOTHER_BOARD','#define OTHER_PROJECT')!=='esp32:esp32:d32:PartitionScheme=min_spiffs'){fwrite(STDERR,"Partition compatibility override leaked to a non-Marauder project.\n");exit(1);}
 $namingStep=WorkflowEngine::artifactNamingStep('Marauder CYD 2 USB');
 if(!str_contains($namingStep,'ESPFORGE_ARTIFACT_PREFIX: "Marauder-CYD-2-USB"')){fwrite(STDERR,"Hardware-target artifact naming is not sanitized or stable.\n");exit(1);}
 foreach(['"bootloader", ".bin"','"partitions", ".bin"','"merged", ".bin"','"application", ".bin"'] as $role)if(!str_contains($namingStep,$role)){fwrite(STDERR,"Artifact role naming is incomplete.\n");exit(1);}

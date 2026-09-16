@@ -108,9 +108,9 @@ YAML;
     public static function compatibleFqbn(string $fqbn,string $buildFlags,string $source): string
     {
         $marauder=str_contains($source,'MARAUDER_VERSION')||str_contains($source,'MARAUDER_CYD_');
-        if($marauder&&str_contains($buildFlags,'MARAUDER_CYD_2USB')&&preg_match('/^esp32:esp32:d32(?::|$)/',$fqbn)){
-            // The d32 board menu exposes no_ota (2 MiB application), but not
-            // huge_app. min_spiffs is 1,966,080 bytes and this profile exceeds it.
+        if($marauder&&preg_match('/^esp32:esp32:d32(?::|$)/',$fqbn)){
+            // Current Marauder d32 profiles (including CYD 2 USB and V4) exceed
+            // min_spiffs. The d32 menu exposes no_ota (2 MiB app), not huge_app.
             if(str_contains($fqbn,'PartitionScheme=min_spiffs'))return str_replace('PartitionScheme=min_spiffs','PartitionScheme=no_ota',$fqbn);
             if(!str_contains($fqbn,'PartitionScheme='))return $fqbn.':PartitionScheme=no_ota';
         }
