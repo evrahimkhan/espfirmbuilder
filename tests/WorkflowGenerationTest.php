@@ -25,6 +25,8 @@ if(!str_contains($aiWorkflow,"'Imaginary Library@1.2.3' || echo")){fwrite(STDERR
 $jsonWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'#include <ArduinoJson.h>');
 if(!str_contains($jsonWorkflow,"'ArduinoJson@6.18.2'")){fwrite(STDERR,"ArduinoJson compatibility pin is missing.\n");exit(1);}
 if(str_contains($jsonWorkflow,'find . -mindepth 2 -maxdepth 7 -type f -name library.properties')){fwrite(STDERR,"Repository libraries can overwrite pinned dependency versions.\n");exit(1);}
+$localWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino','libraries/Local/library.properties'],'');
+if(!str_contains($localWorkflow,"if not key or key in installed: continue")){fwrite(STDERR,"Local library precedence protection is missing.\n");exit(1);}
 $multiSketch=WorkflowEngine::workflow('arduino',['TestFile.ino','esp32_marauder/esp32_marauder.ino','examples/Demo/Demo.ino'],'');
 if(!str_contains($multiSketch,"firmware-output 'esp32_marauder'")){fwrite(STDERR,"Arduino sketch selection chose a test/example instead of the primary sketch.\n");exit(1);}
 $compatibility=WorkflowEngine::sourceCompatibilityStep('#define MARAUDER_VERSION "test"\nchar index_html[MAX_HTML_SIZE] = "TEST";\nHardwareSerial Serial2(GPS_SERIAL_INDEX);');
