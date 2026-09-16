@@ -117,6 +117,7 @@ try {
      $source=$targetFramework==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';$aiLibraries=[];
      if($targetFramework==='arduino'&&$key&&in_array($provider,['google','openrouter'],true))try{$aiLibraries=(new AITargetAnalyzer($provider,$key))->discoverLibraries($source,$target);audit_event('build.ai_libraries_analyzed',['repository'=>$repository['full_name'],'count'=>count($aiLibraries)]);}catch(Throwable $aiError){error_log('ESPForge AI library analysis fallback: '.$aiError->getMessage());}
      $workflow=WorkflowEngine::workflow($targetFramework,$paths,$source,$aiLibraries);
+     if($targetFramework==='arduino'){$compatibility=WorkflowEngine::sourceCompatibilityStep($source);if($compatibility!=='')$workflow=str_replace('      - name: Compile firmware',$compatibility.'      - name: Compile firmware',$workflow);}
      if($targetFramework==='arduino'&&!empty($target['core_version']))$workflow=preg_replace('/esp32:esp32@[0-9]+\.[0-9]+\.[0-9]+/','esp32:esp32@'.$target['core_version'],$workflow)??$workflow;
      if($targetFramework==='arduino'&&!empty($target['nimble_version']))$workflow=preg_replace('/NimBLE-Arduino@[0-9]+\.[0-9]+\.[0-9]+/','NimBLE-Arduino@'.$target['nimble_version'],$workflow)??$workflow;
      if($targetFramework==='arduino'&&!empty($target['tft_setup'])){$setup=escapeshellarg((string)$target['tft_setup']);$tftStep="      - name: Configure display for selected hardware\n        run: cp {$setup} \"\$HOME/Arduino/libraries/TFT_eSPI/User_Setup.h\"\n";$workflow=str_replace('      - name: Compile firmware',$tftStep.'      - name: Compile firmware',$workflow);}
@@ -133,9 +134,9 @@ try {
      }
      if($target['type']==='esp-idf'&&!empty($target['idf_target'])) $workflow=preg_replace('/target:\s*esp32\b/','target: '.$target['idf_target'],$workflow,1)??$workflow;
      $chip=(string)($target['idf_target']??'');
-     if($chip===''&&preg_match('/esp32(?::esp32)?:([a-z0-9]+)/i',(string)($target['fqbn']??''),$chipMatch)) $chip=strtolower($chipMatch[1]);
+     if($chip===''&&preg_match('/^esp32:esp32:([a-z0-9]+)/i',(string)($target['fqbn']??''),$chipMatch)){$board=strtolower($chipMatch[1]);$chip=in_array($board,['esp32s2','esp32s3','esp32c3','esp32c5','esp32c6'],true)?$board:'esp32';}
      if($chip===''&&preg_match('/esp32(?:s2|s3|c3|c5|c6)?/i',(string)($target['id']??''),$chipMatch)) $chip=strtolower($chipMatch[0]);
-     if($chip==='') $chip='esp32';
+     if(!in_array($chip,['esp32','esp32s2','esp32s3','esp32c3','esp32c5','esp32c6'],true))$chip='esp32';
      $uploadMarker='      - uses: actions/upload-artifact@';
      $workflow=str_replace($uploadMarker,WorkflowEngine::artifactNamingStep((string)$target['name']).WorkflowEngine::manifestStep($targetFramework,$chip).$uploadMarker,$workflow);
  }
