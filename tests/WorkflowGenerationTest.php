@@ -30,6 +30,7 @@ if(!str_contains($multiSketch,"firmware-output 'esp32_marauder'")){fwrite(STDERR
 $compatibility=WorkflowEngine::sourceCompatibilityStep('#define MARAUDER_VERSION "test"\nchar index_html[MAX_HTML_SIZE] = "TEST";\nHardwareSerial Serial2(GPS_SERIAL_INDEX);');
 foreach(['EvilPortal.h','operationInProgress','marauder_ieee80211_raw_frame_sanity_check','HardwareSerial\\s+Serial2'] as $needle)if(!str_contains($compatibility,$needle)){fwrite(STDERR,"Source compatibility patch is incomplete.\n");exit(1);}
 if(str_contains($compatibility,"marauder_ieee80211_raw_frame_sanity_check(', 1)")){fwrite(STDERR,"Raw-frame compatibility rename does not update call sites.\n");exit(1);}
+if(!str_contains($compatibility,'#if SOC_UART_NUM <= 2')){fwrite(STDERR,"Serial2 compatibility does not preserve two-UART targets.\n");exit(1);}
 $roomyFqbn=WorkflowEngine::compatibleFqbn('esp32:esp32:d32:PartitionScheme=min_spiffs','-DMARAUDER_CYD_2USB','#define MARAUDER_VERSION "test"');
 if($roomyFqbn!=='esp32:esp32:d32:PartitionScheme=no_ota'){fwrite(STDERR,"CYD 2 USB does not receive a valid, sufficient application partition.\n");exit(1);}
 if(WorkflowEngine::compatibleFqbn('esp32:esp32:d32:PartitionScheme=min_spiffs','-DOTHER_BOARD','#define MARAUDER_VERSION "test"')!=='esp32:esp32:d32:PartitionScheme=min_spiffs'){fwrite(STDERR,"Partition compatibility override leaked to another target.\n");exit(1);}

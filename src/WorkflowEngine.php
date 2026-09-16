@@ -95,7 +95,10 @@ YAML;
           gps = root / "GpsInterface.cpp"
           if gps.is_file():
               text = gps.read_text(errors="ignore")
-              text = re.sub(r'(?m)^\s*HardwareSerial\s+Serial2\s*\(GPS_SERIAL_INDEX\)\s*;\s*\n?', '', text, count=1)
+              # ESP32/S3 cores already own Serial2, while chips with only two
+              # hardware UARTs (including ESP32-S2) do not declare it. Keep the
+              # project instance only where the core cannot provide one.
+              text = re.sub(r'(?m)^\s*HardwareSerial\s+Serial2\s*\(GPS_SERIAL_INDEX\)\s*;\s*$', '#if SOC_UART_NUM <= 2\nHardwareSerial Serial2(GPS_SERIAL_INDEX);\n#endif', text, count=1)
               gps.write_text(text)
           PY
 
