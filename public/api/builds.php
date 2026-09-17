@@ -136,7 +136,7 @@ try {
      }
      $step=TargetAnalyzer::configurationStep($target,$targets);
      if($step!==''){
-         $marker=str_starts_with($target['type'],'platformio')?'      - name: Build firmware':'      - name: Compile firmware';
+         $marker=str_starts_with($target['type'],'platformio')?'      - name: Build firmware':(($target['type']??'')==='esp-idf'?'      - uses: espressif/esp-idf-ci-action@':'      - name: Compile firmware');
          $workflow=str_replace($marker,$step.$marker,$workflow);
      }
      if($target['type']==='esp-idf'&&!empty($target['idf_target'])) $workflow=preg_replace('/target:\s*esp32\b/','target: '.$target['idf_target'],$workflow,1)??$workflow;

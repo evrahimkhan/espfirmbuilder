@@ -14,4 +14,12 @@ foreach($cases as $input=>$expected){
     $actual=[];foreach($method->invoke(null,$input) as $entry)$actual[$entry['environment']]=$entry['disabled'];
     if($actual!==$expected){fwrite(STDERR,"Parser mismatch\nExpected: ".json_encode($expected)."\nActual: ".json_encode($actual)."\n");exit(1);}
 }
+$matrix=new ReflectionMethod(TargetAnalyzer::class,'parseWorkflowMatrix');$matrix->setAccessible(true);
+$rows=$matrix->invoke(null,"strategy:\n  matrix:\n    include:\n      - { fqbn: 'esp32:esp32:d32:PartitionScheme=min_spiffs', flag: 'MARAUDER_V4', name: 'Marauder V4' }\n",'.github/workflows/build.yml');
+if(count($rows)!==1||($rows[0]['build_flags']??'')!=='-DMARAUDER_V4'||($rows[0]['evidence']??'')!=='.github/workflows/build.yml'){fwrite(STDERR,"Order-independent workflow matrix parsing failed.\n");exit(1);}
+$merge=new ReflectionMethod(TargetAnalyzer::class,'mergeTargets');$merge->setAccessible(true);
+$merged=$merge->invoke(null,[['id'=>'MARAUDER_V4','name'=>'Config','type'=>'arduino_define','define'=>'MARAUDER_V4','source'=>'config'],['id'=>'MARAUDER_V4','name'=>'Workflow','type'=>'arduino','flag'=>'MARAUDER_V4','source'=>'workflow_metadata']]);
+if(count($merged)!==1||$merged[0]['name']!=='Workflow'){fwrite(STDERR,"Target provenance merge failed.\n");exit(1);}
+$idfStep=TargetAnalyzer::configurationStep(['type'=>'esp-idf','config_path'=>'configs/sdkconfig.s3'],[]);
+if(!str_contains($idfStep,'Apply selected ESP-IDF hardware configuration')||!str_contains($idfStep,'shutil.copyfile')){fwrite(STDERR,"ESP-IDF selected configuration is not applied.\n");exit(1);}
 echo "TargetAnalyzer parser tests passed\n";

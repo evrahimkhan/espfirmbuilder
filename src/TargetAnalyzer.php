@@ -7,56 +7,69 @@ final class TargetAnalyzer
     {
         $targets=[];
 
-        // Several mature firmware projects publish their supported hardware as an
-        // inline GitHub Actions matrix. Reuse it as the authoritative model list.
+        // Collect every deterministic source instead of returning after the first
+        // partial match. This supports mixed Arduino, PlatformIO, and ESP-IDF repos.
         $workflowPaths=array_values(array_filter($paths,fn($path)=>preg_match('~^\.github/workflows/.*\.ya?ml$~i',$path)));
         usort($workflowPaths,fn($a,$b)=>(str_contains($b,'build_parallel')?1:0)<=>(str_contains($a,'build_parallel')?1:0));
         foreach(array_slice($workflowPaths,0,30) as $path){
             $yaml=$github->file($fullName,$path,$branch)??'';
-            foreach(preg_split('/\R/',$yaml) as $line){
-                if(preg_match('/^\s*-\s*\{.*?name:\s*"([^"]+)".*?flag:\s*"([^"]+)".*?(?:fbqn|fqbn):\s*"([^"]+)"/',$line,$match)){
-                    $flag=trim($match[2]);
-                    if(!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/',$flag))continue;
-                    // Treat repository matrices only as hardware metadata. Generate a
-                    // fresh compile-only workflow instead of executing publishing or
-                    // token-enabled repository workflow steps.
-                    $target=['id'=>$flag,'name'=>$match[1],'type'=>'arduino','fqbn'=>$match[3],'flag'=>$flag,'build_flags'=>'-D'.$flag,'source'=>'workflow_metadata'];
-                    if(preg_match('/\bidf_ver:\s*"([0-9]+\.[0-9]+\.[0-9]+)"/',$line,$version))$target['core_version']=$version[1];
-                    if(preg_match('/\bnimble_ver:\s*"([0-9]+\.[0-9]+\.[0-9]+)"/',$line,$version))$target['nimble_version']=$version[1];
-                    if(preg_match('/\btft_file:\s*"([A-Za-z0-9_.-]+\.h)"/',$line,$setup))$target['tft_setup']=$setup[1];
-                    $targets[]=$target;
-                    continue;
-                }
-                // ESP-IDF repositories commonly pair each board with its chip and
-                // an authoritative sdkconfig file in an inline Actions matrix.
-                if(preg_match('/^\s*-\s*\{.*?name:\s*"([^"]+)".*?idf_target:\s*"([^"]+)".*?sdkconfig_file:\s*"([^"]+)"/',$line,$match)){
-                    $id='idf-'.substr(hash('sha256',$match[3]),0,16);
-                    if(!preg_match('/^esp32(?:s2|s3|c3|c5|c6)?$/',$match[2])||!self::safeConfigPath($match[3]))continue;
-                    $targets[]=['id'=>$id,'name'=>$match[1],'type'=>'esp-idf','idf_target'=>$match[2],'config_path'=>$match[3],'source'=>'workflow_metadata'];
-                }
-            }
-            if($targets) return $targets;
+            foreach(self::parseWorkflowMatrix($yaml,$path) as $target)$targets[]=$target;
         }
+        foreach(self::discoverPlatformIOTargets($github,$fullName,$branch,$paths) as $target)$targets[]=$target;
+        foreach(self::discoverEspIdfTargets($github,$fullName,$branch,$paths) as $target)$targets[]=$target;
+        foreach(self::discoverBoardDefines($github,$fullName,$branch,$paths) as $target)$targets[]=$target;
+        $targets=self::mergeTargets($targets);
 
-        $targets=self::discoverPlatformIOTargets($github,$fullName,$branch,$paths);
-        if($targets) return $targets;
-
-        $idfTargets=self::discoverEspIdfTargets($github,$fullName,$branch,$paths);
-        if(count($idfTargets)>1) return $idfTargets;
-
-        $defineTargets=self::discoverBoardDefines($github,$fullName,$branch,$paths);
-        if(count($defineTargets)>1) return $defineTargets;
-
-        if($aiFallback){
-            try { $aiTargets=$aiFallback(); if(is_array($aiTargets)&&$aiTargets) return $aiTargets; }
-            catch(Throwable $e){ error_log('ESPForge AI target fallback: '.$e->getMessage()); }
+        // AI is a fallback only. It cannot replace or silently amend proven targets.
+        if(!$targets&&$aiFallback){
+            try{$aiTargets=$aiFallback();if(is_array($aiTargets))$targets=self::mergeTargets($aiTargets);}
+            catch(Throwable $e){error_log('ESPForge AI target fallback: '.$e->getMessage());}
         }
+        if($targets)return $targets;
+
         $source=$github->sourceBundle($fullName,$branch,array_map(fn($path)=>['path'=>$path,'type'=>'blob','size'=>0],$paths),20);
-        $s3=preg_match('/^\s*#\s*define\s+BOARD_ESP32_DIV_V2\b/m',$source)===1||preg_match('/\bESP32[-_ ]?S3\b/i',$source)===1;
+        $s3=preg_match('/^\s*#\s*define\s+BOARD_ESP32_DIV_V2\b/m',$source)===1;
         return [[
-            'id'=>$s3?'esp32s3':'esp32', 'name'=>$s3?'ESP32-S3':'ESP32', 'type'=>'arduino',
-            'fqbn'=>$s3?'esp32:esp32:esp32s3:PSRAM=enabled,PartitionScheme=min_spiffs,FlashMode=dio':'esp32:esp32:esp32'
+            'id'=>$s3?'fallback:esp32s3':'fallback:esp32','name'=>$s3?'ESP32-S3 (inferred)':'ESP32 (inferred)','type'=>'arduino',
+            'fqbn'=>$s3?'esp32:esp32:esp32s3:PSRAM=enabled,PartitionScheme=min_spiffs,FlashMode=dio':'esp32:esp32:esp32','source'=>'fallback','warning'=>'Hardware was inferred because no authoritative target configuration was found.'
         ]];
+    }
+
+    private static function parseWorkflowMatrix(string $yaml,string $path): array
+    {
+        $targets=[];
+        // Parse bounded inline matrix objects independent of key order and quote style.
+        preg_match_all('/^\s*-\s*\{([^{}]{1,4000})\}\s*$/m',$yaml,$rows);
+        foreach($rows[1]??[] as $row){
+            $fields=[];preg_match_all('/([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:"([^"]*)"|\'([^\']*)\'|([^,]+))/', $row,$pairs,PREG_SET_ORDER);
+            foreach($pairs as $pair)$fields[strtolower($pair[1])]=trim((string)($pair[2]!==''?$pair[2]:($pair[3]!==''?$pair[3]:$pair[4])));
+            $name=(string)($fields['name']??'');$flag=(string)($fields['flag']??'');$fqbn=(string)($fields['fqbn']??$fields['fbqn']??'');
+            if($name!==''&&preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/',$flag)&&self::validEsp32Fqbn($fqbn)){
+                $target=['id'=>'arduino:'.strtolower($flag),'name'=>$name,'type'=>'arduino','fqbn'=>$fqbn,'flag'=>$flag,'build_flags'=>'-D'.$flag,'source'=>'workflow_metadata','evidence'=>$path];
+                if(preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/',(string)($fields['idf_ver']??'')))$target['core_version']=$fields['idf_ver'];
+                if(preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/',(string)($fields['nimble_ver']??'')))$target['nimble_version']=$fields['nimble_ver'];
+                if(preg_match('/^[A-Za-z0-9_.-]+\.h$/',(string)($fields['tft_file']??'')))$target['tft_setup']=$fields['tft_file'];
+                $targets[]=$target;continue;
+            }
+            $chip=strtolower((string)($fields['idf_target']??''));$config=(string)($fields['sdkconfig_file']??'');
+            if($name!==''&&preg_match('/^esp32(?:s2|s3|c3|c5|c6)?$/',$chip)&&self::safeConfigPath($config))$targets[]=['id'=>'esp-idf:'.substr(hash('sha256',$config),0,16),'name'=>$name,'type'=>'esp-idf','idf_target'=>$chip,'config_path'=>$config,'source'=>'workflow_metadata','evidence'=>$path];
+        }
+        return $targets;
+    }
+
+    private static function validEsp32Fqbn(string $fqbn): bool
+    {
+        if(!preg_match('/^esp32:esp32:([A-Za-z0-9_.-]+)(?::(.*))?$/',$fqbn,$match))return false;
+        if(empty($match[2]))return true;
+        foreach(explode(',',$match[2]) as $option)if(!preg_match('/^[A-Za-z0-9_.-]+=[A-Za-z0-9_.-]+$/',$option))return false;
+        return true;
+    }
+
+    private static function mergeTargets(array $targets): array
+    {
+        $merged=[];
+        foreach($targets as $target){if(!is_array($target)||empty($target['id'])||empty($target['type']))continue;$identity=match($target['type']){'platformio','platformio_disabled'=>'platformio:'.strtolower((string)($target['environment']??$target['id'])),'arduino','arduino_define'=>'arduino:'.strtolower((string)($target['flag']??$target['define']??$target['id'])),'esp-idf'=>'esp-idf:'.strtolower((string)($target['idf_target']??'')).':'.strtolower((string)($target['config_path']??implode(',',(array)($target['config_paths']??[])))),default=>(string)$target['type'].':'.strtolower((string)$target['id'])};if(!isset($merged[$identity])||($target['source']??'')==='workflow_metadata'){$target['id']=$identity;$merged[$identity]=$target;}}
+        return array_values($merged);
     }
 
     private static function safeConfigPath(string $path): bool
@@ -167,6 +180,27 @@ final class TargetAnalyzer
 
 YAML;
         }
+        if(($selected['type']??'')==='esp-idf'){
+            $config=(string)($selected['config_path']??(($selected['config_paths'][0]??'')));
+            if($config===''||!self::safeConfigPath($config))return '';
+            $encoded=base64_encode($config);
+            return <<<YAML
+      - name: Apply selected ESP-IDF hardware configuration
+        env:
+          ESPFORGE_SDKCONFIG: "{$encoded}"
+        run: |
+          python - <<'PY'
+          import base64, os, pathlib, shutil
+          source = pathlib.Path(base64.b64decode(os.environ["ESPFORGE_SDKCONFIG"]).decode())
+          if not source.is_file():
+              raise SystemExit(f"Selected sdkconfig file does not exist: {source}")
+          destination = pathlib.Path("sdkconfig")
+          if source.resolve() != destination.resolve():
+              shutil.copyfile(source, destination)
+          PY
+
+YAML;
+        }
         if(($selected['type']??'')!=='arduino_define') return '';
         $macro=(string)$selected['define']; $paths=[]; $macros=[];
         foreach($targets as $target) if(($target['type']??'')==='arduino_define'){
@@ -238,7 +272,6 @@ YAML;
                 $environment=$entry['environment'];
                 $targets[$environment]=['id'=>$environment,'name'=>self::label($environment),'type'=>'platformio','environment'=>$environment,'config_path'=>'platformio.ini','disabled'=>$entry['disabled'],'source'=>'default_envs'];
             }
-            if($targets) return array_values($targets);
         }
 
         $files=array_values(array_filter($paths,fn($path)=>
