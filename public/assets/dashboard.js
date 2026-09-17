@@ -1,10 +1,10 @@
+// OAuth providers can return some mobile browsers with a stale desktop layout
+// viewport. Perform one clean same-origin reload after removing the callback
+// marker so the browser reparses the viewport meta tag normally. Do not resize
+// the interface with CSS zoom because that conflicts with accessibility scaling.
+const oauthReturn=new URLSearchParams(location.search).get('oauth_return');
+if(oauthReturn==='1'){history.replaceState(null,'',location.pathname+location.hash);location.reload()}
 let csrf='',repos=[],loader=null,transport=null;
-// Some Android browsers return from OAuth with a desktop-sized layout viewport
-// even though Desktop site is off. Correct only phone-class touch devices; the
-// CSS zoom participates in layout, unlike a transform, so fixed navigation and
-// scrolling retain their proper geometry.
-const phoneTouchViewport=matchMedia('(hover:none) and (pointer:coarse)').matches&&/Android|iPhone|iPod/i.test(navigator.userAgent)&&innerWidth>850;
-if(phoneTouchViewport)document.documentElement.style.zoom=String(Math.min(2.5,Math.max(1,innerWidth/430)));
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 const tabNames=['overview','repos','builds','flash','settings'];
 function tab(name,remember=true){if(!tabNames.includes(name))name='overview';$$('.tab').forEach(x=>x.classList.toggle('active',x.id===name));$$('aside nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));$('#title').textContent=({overview:'Workspace overview',repos:'Repositories',builds:'Live Builds',flash:'Web Flasher',settings:'Settings'})[name]||'ESPForge';if(remember){localStorage.setItem('espforge-active-tab',name);history.replaceState(null,'','#'+name)}}
