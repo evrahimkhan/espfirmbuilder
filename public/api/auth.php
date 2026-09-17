@@ -102,6 +102,11 @@ if (in_array($action, ['github', 'google'], true)) {
 
 if (in_array($action, ['github_callback', 'google_callback'], true)) {
     $provider = str_replace('_callback', '', $action); $oauthState=(string)($_GET['state']??'');$oauthRecord=$_SESSION['oauth_states'][$oauthState]??null;
+    $completedStates=is_array($_SESSION['completed_oauth_states']??null)?$_SESSION['completed_oauth_states']:[];$now=time();foreach($completedStates as $key=>$record)if(!is_array($record)||$now-(int)($record['time']??0)>900)unset($completedStates[$key]);$_SESSION['completed_oauth_states']=$completedStates;
+    // Mobile browsers may replay the OAuth callback when Desktop site mode changes.
+    // A successfully consumed state is idempotent: redirect to the clean dashboard
+    // instead of reporting a false CSRF/state failure or exchanging the code twice.
+    if(!is_array($oauthRecord)&&isset($completedStates[$oauthState])&&!empty($_SESSION['user'])){$tab=($completedStates[$oauthState]['linked']??false)?'settings':'overview';header('Location: ../dashboard.html?oauth_return=1#'.$tab);exit;}
     if (!is_array($oauthRecord)||!hash_equals((string)($oauthRecord['provider']??''),$provider)||time()-(int)($oauthRecord['created_at']??0)>600) oauth_dashboard_error('The sign-in request expired or failed its security check. Please try connecting again.');
     if (empty($_GET['code'])) oauth_dashboard_error('Authorization was cancelled. No account changes were made.');
     $tokenUrl = $provider === 'github' ? 'https://github.com/login/oauth/access_token' : 'https://oauth2.googleapis.com/token';
@@ -184,6 +189,7 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         oauth_dashboard_error('This provider identity is already linked to another account. Sign out and use the originally linked account.');
     }
     db()->prepare('UPDATE users SET email_verified_at=COALESCE(email_verified_at,NOW()) WHERE id=?')->execute([$id]);$deleteScope=!empty($oauthRecord['delete_scope']);
+    $completedStates[$oauthState]=['time'=>time(),'linked'=>$linkId>0];if(count($completedStates)>10)$completedStates=array_slice($completedStates,-10,null,true);$_SESSION['completed_oauth_states']=$completedStates;
     unset($_SESSION['oauth_states'][$oauthState],$_SESSION['github_connection_status']); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider,'delete_scope'=>$deleteScope]);$returnTab=$linkId?'settings':'overview';header('Location: ../dashboard.html?oauth_return=1#'.$returnTab); exit;
 }
 json_response(['error' => 'Unknown action'], 404);
