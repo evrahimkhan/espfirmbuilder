@@ -1,0 +1,8 @@
+<?php
+declare(strict_types=1);
+$root=dirname(__DIR__);$targets=(string)file_get_contents($root.'/public/api/targets.php');$builds=(string)file_get_contents($root.'/public/api/builds.php');$worker=(string)file_get_contents($root.'/bin/analysis-worker.php');$migration=(string)file_get_contents($root.'/database/migrations/20260918_011_analysis_queue_and_build_plans.sql');
+foreach(['queued','processing','completed','failed','FOR UPDATE SKIP LOCKED','result_encrypted'] as $needle)if(!str_contains($worker.$migration,$needle)){fwrite(STDERR,"Analysis queue lifecycle is missing {$needle}.\n");exit(1);}
+foreach(['ready','approved','superseded','dispatched','approved_by','approved_at','plan_sha256'] as $needle)if(!str_contains($builds.$worker.$migration,$needle)){fwrite(STDERR,"Build-plan lifecycle is missing {$needle}.\n");exit(1);}
+if(str_contains($targets,'TargetAnalyzer::discover')||str_contains($targets,'AITargetAnalyzer')){fwrite(STDERR,"Target HTTP requests must not execute source or AI analysis.\n");exit(1);}
+if(!str_contains($builds,"status='completed'")||!str_contains($builds,'result_encrypted')){fwrite(STDERR,"Dispatch must consume completed immutable analysis.\n");exit(1);}
+echo "Analysis queue and build-plan policy tests passed.\n";

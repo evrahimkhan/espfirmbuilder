@@ -103,14 +103,15 @@ try {
  $tree=$github->tree($repository['full_name'],$repository['default_branch']); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');$commitSha=(string)($tree['sha']??'');
  $analysis=WorkflowEngine::analyze($paths); $record=user_record((int)$user['id']);
  $provider=(string)($record['ai_provider']??''); $key=decrypt_secret($record['ai_api_key']??null);$analysisVersion=AppPolicy::ANALYZER_VERSION;$targetSessionKey=$repo.':'.$commitSha.':'.$analysisVersion;$targetPersistentKey=$repository['full_name'].':'.$commitSha.':'.$analysisVersion.':'.$provider.':'.(string)($record['ai_key_fingerprint']??'');
- $fallback=$key&&in_array($provider,['google','openrouter'],true)?fn()=>(new AITargetAnalyzer($provider,$key,AppPolicy::aiModel($config,$provider)))->discover($github,$repository['full_name'],$repository['default_branch'],$paths):null;
- $cachedTargets=$_SESSION['target_analysis_cache'][$targetSessionKey]??analysis_cache_get('targets',$targetPersistentKey,86400);
- $targets=$commitSha!==''&&is_array($cachedTargets)&&time()-(int)($cachedTargets['time']??0)<86400?($cachedTargets['targets']??[]):TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths,$fallback);
- if($commitSha!==''&&!is_array($cachedTargets))analysis_cache_set('targets',$targetPersistentKey,['time'=>time(),'targets'=>$targets,'ai'=>(bool)$key]);
+ $q=db()->prepare("SELECT result_encrypted FROM analysis_jobs WHERE repo_id=? AND source_commit_sha=? AND analyzer_version=? AND status='completed'");$q->execute([$repo,$commitSha,$analysisVersion]);$encryptedAnalysis=$q->fetchColumn();
+ if(!is_string($encryptedAnalysis))json_response(['error'=>'The immutable build plan is not ready. Analyze targets first.','code'=>'plan_not_ready'],409);
+ $analysisPayload=json_decode((string)decrypt_secret($encryptedAnalysis),true);$targets=is_array($analysisPayload)?($analysisPayload['targets']??[]):[];
  $targetId=(string)($data['target_id']??'');
  if(count($targets)>1 && $targetId==='') json_response(['error'=>'Select a hardware model before building.','code'=>'target_required','targets'=>$targets],422);
  $target=TargetAnalyzer::select($targets,$targetId!==''?$targetId:(string)$targets[0]['id']);
  if(!$target) json_response(['error'=>'The selected hardware model is invalid or no longer available.'],422);
+ $q=db()->prepare("SELECT * FROM build_plans WHERE repo_id=? AND source_commit_sha=? AND analyzer_version=? AND target_id=? AND status IN ('ready','approved','dispatched') LIMIT 1");$q->execute([$repo,$commitSha,$analysisVersion,$target['id']]);$plan=$q->fetch();if(!$plan)json_response(['error'=>'The selected immutable build plan is unavailable or superseded. Analyze targets again.','code'=>'plan_not_ready'],409);
+ $target=json_decode((string)$plan['target_config_json'],true);if(!is_array($target))json_response(['error'=>'Stored build plan is invalid.'],500);db()->prepare("UPDATE build_plans SET status='approved',approved_by=?,approved_at=NOW() WHERE id=? AND status='ready'")->execute([$user['id'],$plan['id']]);
  $targetConfigJson=json_encode($target,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);if(!is_string($targetConfigJson)||strlen($targetConfigJson)>65535)json_response(['error'=>'The selected hardware plan is too large.'],422);$configDigest=hash('sha256',$targetConfigJson);
  $buildUuid=uuid_v4(); $inputs=['espforge_build_uuid'=>$buildUuid];
  $targetFramework=in_array($target['type'],['arduino','arduino_define'],true)?'arduino':($target['type']==='esp-idf'?'esp-idf':$analysis['framework']);
@@ -161,7 +162,8 @@ try {
  $q=db()->prepare("INSERT INTO builds(repo_id,build_uuid,target_id,target_name,source_commit_sha,analyzer_version,ai_model,target_config_json,workflow_sha256,status,logs) VALUES(?,?,?,?,?,?,?,?,?,'queued',?)"); $q->execute([$repo,$buildUuid,substr((string)($target['id']??''),0,190),substr((string)$target['name'],0,120),preg_match('/^[a-f0-9]{40}$/i',$commitSha)?strtolower($commitSha):null,$analysisVersion,$aiModel,$targetConfigJson,$workflowDigest,$buildMessage]); $buildId=(int)db()->lastInsertId();
  try { $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs,$target['type']!=='workflow_matrix'); }
  catch(RuntimeException $dispatchError){ db()->prepare("UPDATE builds SET status='completed',conclusion='failure',completed_at=NOW(),logs=? WHERE id=?")->execute(['Dispatch failed: '.$dispatchError->getMessage(),$buildId]); throw $dispatchError; }
- audit_event('build.dispatched',['build_id'=>$buildId,'repository'=>$repository['full_name'],'target'=>$target['id']??$target['name'],'uuid'=>$buildUuid]);
+ db()->prepare("UPDATE build_plans SET status='dispatched',dispatched_at=NOW() WHERE id=? AND approved_by=?")->execute([$plan['id'],$user['id']]);
+ audit_event('build.dispatched',['build_id'=>$buildId,'plan_id'=>(int)$plan['id'],'plan_sha256'=>$plan['plan_sha256'],'repository'=>$repository['full_name'],'target'=>$target['id']??$target['name'],'uuid'=>$buildUuid]);
  json_response(['id'=>$buildId,'status'=>'queued','workflow'=>$workflowFile],202);
 }
 catch(RuntimeException $e){ if($e instanceof PDOException) throw $e; json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }

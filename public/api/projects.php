@@ -100,6 +100,7 @@ try {
         throw $e;
     }
     $q=db()->prepare('INSERT INTO repositories(user_id,repo_url,full_name,default_branch,framework,workflow_config,status) VALUES(?,?,?,?,?,?,?)');
-    $q->execute([$user['id'],$url,$full,$branch,$analysis['framework'],$workflow,'workflow_ready']);
-    json_response(['id'=>(int)db()->lastInsertId(),'full_name'=>$full,'forked_from'=>$forkedFrom,'analysis'=>$analysis],201);
+    $q->execute([$user['id'],$url,$full,$branch,$analysis['framework'],$workflow,'workflow_ready']);$repositoryId=(int)db()->lastInsertId();$commitSha=strtolower((string)($tree['sha']??''));
+    if(preg_match('/^[a-f0-9]{40}$/',$commitSha)){require_once __DIR__.'/../../src/AppPolicy.php';db()->prepare("INSERT IGNORE INTO analysis_jobs(repo_id,source_commit_sha,analyzer_version,status) VALUES(?,?,?,'queued')")->execute([$repositoryId,$commitSha,AppPolicy::ANALYZER_VERSION]);}
+    json_response(['id'=>$repositoryId,'full_name'=>$full,'forked_from'=>$forkedFrom,'analysis'=>$analysis,'analysis_status'=>'queued'],201);
 } catch(Throwable $e) { if($e instanceof PDOException) throw $e; json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }

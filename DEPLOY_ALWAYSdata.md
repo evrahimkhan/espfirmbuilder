@@ -163,6 +163,12 @@ In alwaysdata's scheduled-jobs panel, run this command daily:
 cd /home/ACCOUNT/espforge && php bin/prune-data.php
 ```
 
+Run the durable analysis worker every minute from Alwaysdata Scheduled Tasks:
+
+```bash
+php bin/analysis-worker.php 3
+```
+
 It removes expired recovery/verification tokens, audit events older than 180 days, flash metrics older than two years, and expired rate-limit files. The database cleanup is transactional and exits non-zero on failure.
 
 ## Operational notes

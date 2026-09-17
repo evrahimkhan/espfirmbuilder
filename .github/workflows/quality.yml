@@ -32,6 +32,8 @@ jobs:
         run: php tests/PolicyVersionTest.php
       - name: Telemetry policy regression tests
         run: php tests/TelemetryPolicyTest.php
+      - name: Analysis queue policy regression tests
+        run: php tests/AnalysisQueuePolicyTest.php
       - name: Target parser regression tests
         run: php tests/TargetAnalyzerParserTest.php
       - name: Workflow safety regression tests

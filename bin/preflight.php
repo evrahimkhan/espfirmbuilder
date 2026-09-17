@@ -23,6 +23,8 @@ try{
         'flash_events'=>['chip','firmware_size','manifest_verified'],
         'rate_limits'=>['rate_key','request_count','reset_at'],
         'operational_metrics'=>['metric_name','duration_ms','outcome','metadata_json','created_at'],
+        'analysis_jobs'=>['repo_id','source_commit_sha','analyzer_version','status','attempts','result_encrypted','available_at'],
+        'build_plans'=>['plan_uuid','repo_id','source_commit_sha','target_id','target_config_json','plan_sha256','status','approved_by','approved_at'],
     ];
     foreach($required as $table=>$columns){
         $q=$pdo->prepare('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?');$q->execute([$table]);$present=$q->fetchAll(PDO::FETCH_COLUMN);
@@ -33,13 +35,16 @@ try{
         'repositories'=>[['user_id','full_name']],
         'builds'=>[['repo_id','created_at'],['repo_id','source_commit_sha','target_id']],
         'operational_metrics'=>[['metric_name','created_at']],
+        'analysis_jobs'=>[['status','available_at','id'],['repo_id','source_commit_sha','analyzer_version']],
+        'build_plans'=>[['repo_id','status','created_at'],['repo_id','source_commit_sha','analyzer_version','target_id']],
     ];
     foreach($expectedIndexes as $table=>$expectedSequences){$q=$pdo->prepare('SELECT INDEX_NAME,COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? ORDER BY INDEX_NAME,SEQ_IN_INDEX');$q->execute([$table]);$indexes=[];foreach($q->fetchAll() as $row)$indexes[$row['INDEX_NAME']][]=$row['COLUMN_NAME'];foreach($expectedSequences as $expected)if(!in_array($expected,$indexes,true))$failures[]='Missing ordered database index: '.$table.'('.implode(',',$expected).').';}
     $expectedForeignKeys=[
         'repositories.user_id'=>['users','id','CASCADE'],'builds.repo_id'=>['repositories','id','CASCADE'],
         'audit_events.user_id'=>['users','id','SET NULL'],'flash_events.user_id'=>['users','id','CASCADE'],
         'flash_configs.user_id'=>['users','id','CASCADE'],'email_verification_tokens.user_id'=>['users','id','CASCADE'],
-        'password_reset_tokens.user_id'=>['users','id','CASCADE'],
+        'password_reset_tokens.user_id'=>['users','id','CASCADE'],'analysis_jobs.repo_id'=>['repositories','id','CASCADE'],
+        'build_plans.repo_id'=>['repositories','id','CASCADE'],'build_plans.approved_by'=>['users','id','SET NULL'],
     ];
     foreach($expectedForeignKeys as $identity=>$expected){[$table,$column]=explode('.',$identity,2);$q=$pdo->prepare('SELECT k.REFERENCED_TABLE_NAME,k.REFERENCED_COLUMN_NAME,r.DELETE_RULE FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.REFERENTIAL_CONSTRAINTS r ON r.CONSTRAINT_SCHEMA=k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME=k.CONSTRAINT_NAME WHERE k.TABLE_SCHEMA=DATABASE() AND k.TABLE_NAME=? AND k.COLUMN_NAME=?');$q->execute([$table,$column]);$actual=$q->fetch();if(!$actual||array_values($actual)!==$expected)$failures[]="Database foreign key mismatch: {$identity}.";}
     $q=$pdo->query("SELECT TABLE_NAME,ENGINE,TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE'");foreach($q->fetchAll() as $table){if(strtoupper((string)$table['ENGINE'])!=='INNODB')$failures[]='Database table must use InnoDB: '.$table['TABLE_NAME'];if(!str_starts_with(strtolower((string)$table['TABLE_COLLATION']),'utf8mb4_'))$failures[]='Database table must use utf8mb4: '.$table['TABLE_NAME'];}
