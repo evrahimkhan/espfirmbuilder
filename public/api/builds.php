@@ -7,6 +7,9 @@ require __DIR__ . '/../../src/AITargetAnalyzer.php';
 require_method('GET','POST');
 $user=require_user();
 verify_csrf();
+// Workflow preparation can involve several GitHub/API calls. Release PHP's
+// per-session file lock so status polling and navigation remain responsive.
+if($_SERVER['REQUEST_METHOD']==='POST')session_write_close();
 if($_SERVER['REQUEST_METHOD']==='GET'){
  $requestBucket=isset($_GET['details'])?'build-details':(($_GET['refresh']??'')==='1'?'build-refresh':'build-list');
  rate_limit($requestBucket,$requestBucket==='build-refresh'?40:60,60);
@@ -97,11 +100,13 @@ try {
  $github=new GitHubClient(github_token((int)$user['id']));
  // Re-analyze and synchronize the workflow before every dispatch. This upgrades
  // projects connected with an older ESPForge generator without manual deletion.
- $tree=$github->tree($repository['full_name'],$repository['default_branch']); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');
+ $tree=$github->tree($repository['full_name'],$repository['default_branch']); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');$commitSha=(string)($tree['sha']??'');$targetCacheKey=$repo.':'.$commitSha;
  $analysis=WorkflowEngine::analyze($paths); $record=user_record((int)$user['id']);
  $provider=(string)($record['ai_provider']??''); $key=decrypt_secret($record['ai_api_key']??null);
  $fallback=$key&&in_array($provider,['google','openrouter'],true)?fn()=>(new AITargetAnalyzer($provider,$key))->discover($github,$repository['full_name'],$repository['default_branch'],$paths):null;
- $targets=TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths,$fallback);
+ $cachedTargets=$_SESSION['target_analysis_cache'][$targetCacheKey]??null;
+ $targets=$commitSha!==''&&is_array($cachedTargets)&&time()-(int)($cachedTargets['time']??0)<1800?($cachedTargets['targets']??[]):TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths,$fallback);
+ if($commitSha!==''&&!isset($_SESSION['target_analysis_cache'][$targetCacheKey]))$_SESSION['target_analysis_cache'][$targetCacheKey]=['time'=>time(),'targets'=>$targets,'ai'=>(bool)$key];
  $targetId=(string)($data['target_id']??'');
  if(count($targets)>1 && $targetId==='') json_response(['error'=>'Select a hardware model before building.','code'=>'target_required','targets'=>$targets],422);
  $target=TargetAnalyzer::select($targets,$targetId!==''?$targetId:(string)$targets[0]['id']);

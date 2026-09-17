@@ -10,9 +10,12 @@ if(!$repository) json_response(['error'=>'Repository not found.'],404);
 try{
     $github=new GitHubClient(github_token((int)$user['id']));
     $tree=$github->tree($repository['full_name'],$repository['default_branch']);
+    $commitSha=(string)($tree['sha']??'');$cacheKey=$repo.':'.$commitSha;$cached=$_SESSION['target_analysis_cache'][$cacheKey]??null;
+    if($commitSha!==''&&is_array($cached)&&time()-(int)($cached['time']??0)<1800)json_response(['targets'=>$cached['targets']??[],'ai_fallback_available'=>(bool)($cached['ai']??false),'cached'=>true]);
     $paths=array_column($tree['tree']??[],'path'); $record=user_record((int)$user['id']);
     $provider=(string)($record['ai_provider']??''); $key=decrypt_secret($record['ai_api_key']??null);
     $fallback=$key&&in_array($provider,['google','openrouter'],true)?fn()=>(new AITargetAnalyzer($provider,$key))->discover($github,$repository['full_name'],$repository['default_branch'],$paths):null;
     $targets=TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths,$fallback);
-    json_response(['targets'=>$targets,'ai_fallback_available'=>(bool)$key]);
+    if($commitSha!==''){$_SESSION['target_analysis_cache'][$cacheKey]=['time'=>time(),'targets'=>$targets,'ai'=>(bool)$key];if(count($_SESSION['target_analysis_cache'])>20)$_SESSION['target_analysis_cache']=array_slice($_SESSION['target_analysis_cache'],-20,null,true);}
+    json_response(['targets'=>$targets,'ai_fallback_available'=>(bool)$key,'cached'=>false]);
 }catch(RuntimeException $e){ if($e instanceof PDOException) throw $e; json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502); }
