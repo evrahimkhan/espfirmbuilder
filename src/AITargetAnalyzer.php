@@ -3,7 +3,12 @@ declare(strict_types=1);
 
 final class AITargetAnalyzer
 {
-    public function __construct(private string $provider,private string $apiKey) {}
+    private array $evidenceFiles=[];
+
+    public function __construct(private string $provider,private string $apiKey,private ?string $model=null)
+    {
+        $this->model=$model?:($provider==='google'?'gemini-2.5-flash':'google/gemini-2.5-flash');
+    }
 
     public function discover(GitHubClient $github,string $fullName,string $branch,array $paths): array
     {
@@ -13,7 +18,9 @@ final class AITargetAnalyzer
         foreach(array_slice($priority,0,14) as $path){
             $content=$github->file($fullName,$path,$branch); if($content===null) continue;
             $remaining=60000-strlen($digest); if($remaining<=0) break;
-            $digest.="\n--- {$path} ---\n".substr($content,0,min(12000,$remaining));
+            $excerpt=substr($content,0,min(12000,$remaining));
+            $this->evidenceFiles[$path]=['sha256'=>hash('sha256',$content),'excerpt'=>$excerpt,'start_line'=>1,'end_line'=>substr_count($excerpt,"\n")+1];
+            $digest.="\n--- {$path} [sha256:".$this->evidenceFiles[$path]['sha256']."] ---\n".$excerpt;
         }
         $prompt=<<<PROMPT
 Analyze this ESP firmware repository and identify every independently selectable hardware/ESP model that can be compiled. Return ONLY a JSON array. Do not use markdown.
@@ -47,14 +54,15 @@ PROMPT;
 
     private function gemini(string $prompt): string
     {
-        $url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+        if(!preg_match('/^[A-Za-z0-9._-]+$/',(string)$this->model))throw new RuntimeException('Configured Google AI model is invalid.',500);
+        $url='https://generativelanguage.googleapis.com/v1beta/models/'.$this->model.':generateContent';
         $response=$this->post($url,['contents'=>[['parts'=>[['text'=>$prompt]]]],'generationConfig'=>['responseMimeType'=>'application/json','temperature'=>0.1]],['x-goog-api-key: '.$this->apiKey]);
         return (string)($response['candidates'][0]['content']['parts'][0]['text']??'');
     }
 
     private function openRouter(string $prompt): string
     {
-        $response=$this->post('https://openrouter.ai/api/v1/chat/completions',['model'=>'google/gemini-2.5-flash','messages'=>[['role'=>'user','content'=>$prompt]],'temperature'=>0.1],['Authorization: Bearer '.$this->apiKey,'HTTP-Referer: https://espforge.alwaysdata.net','X-Title: ESPForge']);
+        $response=$this->post('https://openrouter.ai/api/v1/chat/completions',['model'=>$this->model,'messages'=>[['role'=>'user','content'=>$prompt]],'temperature'=>0.1],['Authorization: Bearer '.$this->apiKey,'HTTP-Referer: https://espforge.alwaysdata.net','X-Title: ESPForge']);
         return (string)($response['choices'][0]['message']['content']??'');
     }
 
@@ -80,7 +88,10 @@ PROMPT;
             $id=preg_replace('/[^A-Za-z0-9_.-]/','-',(string)($item['id']??'')); $name=trim((string)($item['name']??'')); if(!$id||!$name) continue;
             $evidence=(string)($item['evidence']??'');$confidence=(float)($item['confidence']??0);
             $target=['id'=>$id,'name'=>substr($name,0,100),'type'=>$item['type'],'source'=>'ai','confidence'=>max(0,min(1,$confidence))];
-            if($evidence!==''&&in_array($evidence,$repositoryPaths,true))$target['evidence']=$evidence;
+            if($evidence!==''&&in_array($evidence,$repositoryPaths,true)){
+                $target['evidence']=$evidence;
+                if(isset($this->evidenceFiles[$evidence]))$target['evidence_record']=$this->evidenceFiles[$evidence];
+            }
             if($item['type']==='platformio'&&preg_match('/^[A-Za-z0-9_.-]+$/',(string)($item['environment']??''))) $target['environment']=$item['environment'];
             if($item['type']==='arduino'&&preg_match('/^[A-Za-z0-9_.:-]+(?:,[A-Za-z0-9_.=-]+)*$/',(string)($item['fqbn']??''))) $target['fqbn']=$item['fqbn'];
             if($item['type']==='esp-idf'&&preg_match('/^esp32(?:s2|s3|c3|c5|c6)?$/',(string)($item['idf_target']??''))) $target['idf_target']=$item['idf_target'];

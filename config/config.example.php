@@ -5,5 +5,6 @@ return [
     'security' => ['encryption_key' => 'replace-with-32-byte-random-secret', 'previous_encryption_keys' => [], 'session_name' => 'espforge_session'],
     'github' => ['client_id' => '', 'client_secret' => '', 'redirect_uri' => 'http://localhost:8080/api/auth.php?action=github_callback'],
     'google' => ['client_id' => '', 'client_secret' => '', 'redirect_uri' => 'http://localhost:8080/api/auth.php?action=google_callback'],
+    'ai' => ['models' => ['google' => 'gemini-2.5-flash', 'openrouter' => 'google/gemini-2.5-flash']],
     'mail' => ['from' => 'no-reply@example.com'],
 ];

@@ -28,6 +28,8 @@ jobs:
         run: find config public/api src bin tests -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Security header regression tests
         run: php tests/SecurityHeadersTest.php
+      - name: Policy version regression tests
+        run: php tests/PolicyVersionTest.php
       - name: Target parser regression tests
         run: php tests/TargetAnalyzerParserTest.php
       - name: Workflow safety regression tests

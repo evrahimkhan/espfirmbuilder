@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
+require __DIR__ . '/../../src/AppPolicy.php';
 require_method('GET','POST');
 $user = require_user();
 verify_csrf();
@@ -49,8 +50,10 @@ if (($data['action'] ?? '') === 'test_ai_key') {
     if ($key === '') $key = decrypt_secret($record['ai_api_key'] ?? null) ?? '';
     if ($key === '') json_response(['error' => 'Enter or save an AI API key first.'], 422);
 
+    $model=AppPolicy::aiModel($config,$provider);
+    if($provider==='google'&&!preg_match('/^[A-Za-z0-9._-]+$/',$model))json_response(['error'=>'Configured Google AI model is invalid.'],500);
     $url = $provider === 'google'
-        ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash'
+        ? 'https://generativelanguage.googleapis.com/v1beta/models/'.$model
         : 'https://openrouter.ai/api/v1/key';
     $headers = ['Accept: application/json', 'User-Agent: ESPForge'];
     if ($provider === 'google') $headers[] = 'x-goog-api-key: ' . $key;
