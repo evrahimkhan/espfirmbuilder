@@ -6,7 +6,7 @@ CREATE TABLE schema_migrations (
 CREATE TABLE users (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE, email_verified_at TIMESTAMP NULL, name VARCHAR(120) NOT NULL,
  password_hash VARCHAR(255) NULL, session_version INT UNSIGNED NOT NULL DEFAULT 1, github_id VARCHAR(64) NULL UNIQUE, google_id VARCHAR(128) NULL UNIQUE,
- github_token TEXT NULL, ai_provider VARCHAR(32) NULL, ai_api_key TEXT NULL, ai_key_fingerprint CHAR(64) NULL UNIQUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ github_token TEXT NULL, github_verified_at TIMESTAMP NULL, github_connection_ok TINYINT(1) NULL, ai_provider VARCHAR(32) NULL, ai_api_key TEXT NULL, ai_key_fingerprint CHAR(64) NULL UNIQUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE email_verification_tokens (
@@ -54,4 +54,10 @@ CREATE TABLE flash_configs (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL, name VARCHAR(100) NOT NULL,
  chip VARCHAR(40) DEFAULT 'esp32', baud INT DEFAULT 460800, flash_mode VARCHAR(20) DEFAULT 'dio', offsets_json JSON NULL,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE operational_metrics (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, metric_name VARCHAR(80) NOT NULL,
+ duration_ms INT UNSIGNED NULL, outcome VARCHAR(32) NOT NULL, metadata_json JSON NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ INDEX idx_operational_metrics_name_created(metric_name, created_at), INDEX idx_operational_metrics_created(created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
