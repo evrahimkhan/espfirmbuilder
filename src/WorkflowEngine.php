@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/MarauderProfile.php';
 
 final class WorkflowEngine
 {
@@ -57,73 +58,12 @@ YAML;
 
     public static function sourceCompatibilityStep(string $source): string
     {
-        if(!str_contains($source,'MARAUDER_VERSION')&&!str_contains($source,'MARAUDER_CYD_'))return '';
-        return <<<'YAML'
-      - name: Fix source compatibility for selected toolchain
-        run: |
-          python - <<'PY'
-          import pathlib, re
-          root = pathlib.Path("esp32_marauder")
-          evil_h, evil_cpp = root / "EvilPortal.h", root / "EvilPortal.cpp"
-          if evil_h.is_file() and evil_cpp.is_file():
-              text = evil_h.read_text(errors="ignore")
-              text, changed = re.subn(r'(?m)^(\s*)char\s+index_html\s*\[MAX_HTML_SIZE\]\s*=\s*"TEST"\s*;', r'\1extern char index_html[MAX_HTML_SIZE];', text, count=1)
-              evil_h.write_text(text)
-              implementation = evil_cpp.read_text(errors="ignore")
-              if changed and not re.search(r'(?m)^\s*char\s+index_html\s*\[MAX_HTML_SIZE\]', implementation):
-                  implementation = implementation.replace('#include "EvilPortal.h"', '#include "EvilPortal.h"\n\n#ifndef HAS_PSRAM\nchar index_html[MAX_HTML_SIZE] = "TEST";\n#endif', 1)
-                  evil_cpp.write_text(implementation)
-          wifi_h, wifi_cpp = root / "WiFiScan.h", root / "WiFiScan.cpp"
-          if wifi_h.is_file() and wifi_cpp.is_file():
-              header = wifi_h.read_text(errors="ignore")
-              definitions = []
-              for name in ("operationInProgress", "connectionPending"):
-                  pattern = rf'(?m)^(\s*)bool\s+{name}\s*=\s*(true|false)\s*;'
-                  match = re.search(pattern, header)
-                  if match:
-                      definitions.append((name, match.group(2)))
-                      header = re.sub(pattern, rf'\1extern bool {name};', header, count=1)
-              wifi_h.write_text(header)
-              implementation = wifi_cpp.read_text(errors="ignore")
-              additions = ''.join(f'bool {name} = {value};\n' for name, value in definitions if not re.search(rf'(?m)^\s*bool\s+{name}\s*=', implementation))
-              if additions: implementation = implementation.replace('#include "WiFiScan.h"', '#include "WiFiScan.h"\n\n' + additions.rstrip(), 1)
-              # Rename the project implementation and every project call site together.
-              # Renaming only the first occurrence leaves RunSetup() referring to the
-              # ESP-IDF symbol that is intentionally hidden by the C declaration order.
-              implementation = implementation.replace('ieee80211_raw_frame_sanity_check(', 'marauder_ieee80211_raw_frame_sanity_check(')
-              wifi_cpp.write_text(implementation)
-          battery_h, battery_cpp = root / "BatteryInterface.h", root / "BatteryInterface.cpp"
-          if battery_h.is_file() and battery_cpp.is_file():
-              header = battery_h.read_text(errors="ignore")
-              header, changed = re.subn(r'(?m)^(\s*)AXP192\s+axp192_obj\s*;', r'\1extern AXP192 axp192_obj;', header, count=1)
-              battery_h.write_text(header)
-              implementation = battery_cpp.read_text(errors="ignore")
-              if changed and not re.search(r'(?m)^\s*AXP192\s+axp192_obj\s*;', implementation):
-                  implementation = implementation.replace('#include "BatteryInterface.h"', '#include "BatteryInterface.h"\n\n#ifdef HAS_AXP192\nAXP192 axp192_obj;\n#endif', 1)
-                  battery_cpp.write_text(implementation)
-          gps = root / "GpsInterface.cpp"
-          if gps.is_file():
-              text = gps.read_text(errors="ignore")
-              # ESP32/S3 cores already own Serial2, while chips with only two
-              # hardware UARTs (including ESP32-S2) do not declare it. Keep the
-              # project instance only where the core cannot provide one.
-              text = re.sub(r'(?m)^\s*HardwareSerial\s+Serial2\s*\(GPS_SERIAL_INDEX\)\s*;\s*$', '#if SOC_UART_NUM <= 2\nHardwareSerial Serial2(GPS_SERIAL_INDEX);\n#endif', text, count=1)
-              gps.write_text(text)
-          PY
-
-YAML;
+        return MarauderProfile::compatibilityStep($source);
     }
 
     public static function compatibleFqbn(string $fqbn,string $buildFlags,string $source): string
     {
-        $marauder=str_contains($source,'MARAUDER_VERSION')||str_contains($source,'MARAUDER_CYD_');
-        if($marauder&&preg_match('/^esp32:esp32:d32(?::|$)/',$fqbn)){
-            // Current Marauder d32 profiles (including CYD 2 USB and V4) exceed
-            // min_spiffs. The d32 menu exposes no_ota (2 MiB app), not huge_app.
-            if(str_contains($fqbn,'PartitionScheme=min_spiffs'))return str_replace('PartitionScheme=min_spiffs','PartitionScheme=no_ota',$fqbn);
-            if(!str_contains($fqbn,'PartitionScheme='))return $fqbn.':PartitionScheme=no_ota';
-        }
-        return $fqbn;
+        return MarauderProfile::compatibleFqbn($fqbn,$source);
     }
 
     public static function artifactNamingStep(string $targetName): string
@@ -183,6 +123,20 @@ YAML;
           python - <<'PY'
           import hashlib, json, os, pathlib, subprocess
           root = pathlib.Path("firmware-output")
+          offsets = {}
+          # Consume only offsets emitted authoritatively by PlatformIO/ESP-IDF.
+          # Never guess an address from a filename or board family.
+          for candidate in list(pathlib.Path('.').glob('**/flasher_args.json')):
+              try:
+                  payload = json.loads(candidate.read_text())
+                  for address, filename in payload.get('flash_files', {}).items(): offsets[pathlib.Path(filename).name] = int(address, 0)
+              except (OSError, ValueError, TypeError, json.JSONDecodeError): pass
+          for candidate in list(pathlib.Path('.').glob('**/flash_args')) + list(pathlib.Path('.').glob('**/flash_project_args')):
+              try:
+                  tokens = candidate.read_text().split()
+                  for index, token in enumerate(tokens[:-1]):
+                      if token.startswith('0x') and tokens[index + 1].lower().endswith('.bin'): offsets[pathlib.Path(tokens[index + 1]).name] = int(token, 16)
+              except (OSError, ValueError): pass
           files = []
           for path in sorted(root.rglob("*.bin")):
               data = path.read_bytes()
@@ -190,7 +144,7 @@ YAML;
                   "path": path.relative_to(root).as_posix(),
                   "size": len(data),
                   "sha256": hashlib.sha256(data).hexdigest(),
-                  "offset": None
+                  "offset": offsets.get(path.name)
               })
           manifest = {
               "schema": "https://espforge.dev/schemas/flash-manifest-v1.json",
@@ -201,7 +155,7 @@ YAML;
               "configuration_sha256": os.environ["ESPFORGE_CONFIG_DIGEST"] or None,
               "analyzer_version": os.environ["ESPFORGE_ANALYZER_VERSION"] or None,
               "files": files,
-              "warning": "Offsets are intentionally unset unless supplied by the project toolchain. Verify offsets before flashing."
+              "warning": "Offsets are included only when emitted by the project toolchain. Manually verify any file whose offset is null."
           }
           root.mkdir(parents=True, exist_ok=True)
           (root / "espforge-manifest.json").write_text(json.dumps(manifest, indent=2) + "\\n")
@@ -242,8 +196,8 @@ YAML;
         foreach($additionalLibraries as $library)if(is_string($library)&&preg_match('/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,99}@[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/',$library)){$name=strtolower((string)strstr($library,'@',true));$verified=$verifiedRegistry[$name]??null;if($verified!==null&&hash_equals(strtolower($verified),strtolower($library))&&!isset($resolved[$name])&&!in_array($name,$gitProvided,true)){$resolved[$name]=$verified;$aiLibraries[]=$verified;}}
         $allRegistryLibraries=array_values($resolved);
         $install=$allRegistryLibraries ? implode("\n",array_map(fn($lib)=>'          arduino-cli lib install '.escapeshellarg($lib),$allRegistryLibraries)) : '          echo "No reviewed registry libraries detected"';
-        $marauderProfile=str_contains($source,'MARAUDER_VERSION')||str_contains($source,'MARAUDER_CYD_');
-        foreach($gitMap as $include=>$dependency)if(str_contains($source,$include)||($marauderProfile&&in_array($include,['lvgl.h','JPEGDecoder.h'],true))){$repository=$dependency[0];$sha=$dependency[1];$name=$dependency[2];$install.="\n          rm -rf \"\$RUNNER_TEMP/espforge-{$name}\"\n          git init -q \"\$RUNNER_TEMP/espforge-{$name}\"\n          git -C \"\$RUNNER_TEMP/espforge-{$name}\" remote add origin https://github.com/{$repository}.git\n          git -C \"\$RUNNER_TEMP/espforge-{$name}\" fetch -q --depth=1 origin {$sha}\n          git -C \"\$RUNNER_TEMP/espforge-{$name}\" checkout -q --detach FETCH_HEAD\n          mkdir -p \"\$HOME/Arduino/libraries\"\n          cp -R \"\$RUNNER_TEMP/espforge-{$name}\" \"\$HOME/Arduino/libraries/{$name}\"";}
+        $profileHeaders=MarauderProfile::matches($source)?MarauderProfile::supplementalHeaders():[];
+        foreach($gitMap as $include=>$dependency)if(str_contains($source,$include)||in_array($include,$profileHeaders,true)){$repository=$dependency[0];$sha=$dependency[1];$name=$dependency[2];$install.="\n          rm -rf \"\$RUNNER_TEMP/espforge-{$name}\"\n          git init -q \"\$RUNNER_TEMP/espforge-{$name}\"\n          git -C \"\$RUNNER_TEMP/espforge-{$name}\" remote add origin https://github.com/{$repository}.git\n          git -C \"\$RUNNER_TEMP/espforge-{$name}\" fetch -q --depth=1 origin {$sha}\n          git -C \"\$RUNNER_TEMP/espforge-{$name}\" checkout -q --detach FETCH_HEAD\n          mkdir -p \"\$HOME/Arduino/libraries\"\n          cp -R \"\$RUNNER_TEMP/espforge-{$name}\" \"\$HOME/Arduino/libraries/{$name}\"";}
         $hasLocalLibraries=count(array_filter($paths,fn($p)=>str_contains(strtolower($p),'/libraries/')||str_starts_with(strtolower($p),'libraries/')))>0;
         if($hasLocalLibraries)$install.="\n          python - <<'PY'\n          import pathlib, re, shutil\n          destination = pathlib.Path.home() / 'Arduino' / 'libraries'\n          destination.mkdir(parents=True, exist_ok=True)\n          def metadata(path):\n              values = {}\n              for line in path.read_text(errors='ignore').splitlines():\n                  if '=' in line:\n                      key, value = line.split('=', 1); values[key.strip().lower()] = value.strip()\n              return values\n          installed = {re.sub(r'[^a-z0-9]', '', metadata(path).get('name', path.parent.name).lower()) for path in destination.glob('*/library.properties')}\n          for properties in pathlib.Path('.').glob('**/library.properties'):\n              if '.git' in properties.parts or len(properties.parts) > 8: continue\n              info = metadata(properties); key = re.sub(r'[^a-z0-9]', '', info.get('name', properties.parent.name).lower())\n              if not key or key in installed: continue\n              target = destination / re.sub(r'[^A-Za-z0-9_.-]', '-', properties.parent.name)\n              if not target.exists(): shutil.copytree(properties.parent, target)\n              installed.add(key)\n          PY";
         $hasZips=count(array_filter($paths,fn($p)=>str_starts_with(strtolower($p),'libraries/')&&str_ends_with(strtolower($p),'.zip')))>0;
