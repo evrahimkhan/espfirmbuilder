@@ -30,6 +30,8 @@ jobs:
         run: php tests/SecurityHeadersTest.php
       - name: Policy version regression tests
         run: php tests/PolicyVersionTest.php
+      - name: Telemetry policy regression tests
+        run: php tests/TelemetryPolicyTest.php
       - name: Target parser regression tests
         run: php tests/TargetAnalyzerParserTest.php
       - name: Workflow safety regression tests
