@@ -22,6 +22,8 @@ $marauderWorkflow=WorkflowEngine::workflow('arduino',['esp32_marauder/esp32_mara
 foreach(['8651c35e977bddfd25bf9ef59a041f6ab243c7f2','6a0912ba05532eab707bd092bd4fa43477e38f5c'] as $sha)if(!str_contains($marauderWorkflow,$sha)){fwrite(STDERR,"Marauder dependency profile is incomplete.\n");exit(1);}
 $jsonWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'#include <ArduinoJson.h>');
 if(!str_contains($jsonWorkflow,"'ArduinoJson@6.18.2'")){fwrite(STDERR,"ArduinoJson compatibility pin is missing.\n");exit(1);}
+$aiDependencyWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino'],'',['ArduinoJson@6.18.2','Imaginary Package@1.2.3']);
+if(!str_contains($aiDependencyWorkflow,"'ArduinoJson@6.18.2'")||str_contains($aiDependencyWorkflow,'Imaginary Package')){fwrite(STDERR,"AI dependencies are not constrained to the reviewed package registry.\n");exit(1);}
 if(str_contains($jsonWorkflow,'find . -mindepth 2 -maxdepth 7 -type f -name library.properties')){fwrite(STDERR,"Repository libraries can overwrite pinned dependency versions.\n");exit(1);}
 $localWorkflow=WorkflowEngine::workflow('arduino',['firmware.ino','libraries/Local/library.properties'],'');
 if(!str_contains($localWorkflow,"if not key or key in installed: continue")){fwrite(STDERR,"Local library precedence protection is missing.\n");exit(1);}

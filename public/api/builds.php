@@ -133,6 +133,8 @@ try {
          $replacement='--fqbn "'.$compatibleFqbn.'"';
          if($buildFlags!=='') $replacement.=' --build-property compiler.cpp.extra_flags="'.$buildFlags.'"';
          $workflow=preg_replace('/--fqbn "[^"]+"/',$replacement,$workflow,1)??$workflow;
+         $boardCheck="      - name: Validate selected Arduino board configuration\n        run: arduino-cli board details --fqbn \"{$compatibleFqbn}\" >/dev/null\n";
+         $workflow=str_replace('      - name: Compile firmware',$boardCheck.'      - name: Compile firmware',$workflow);
      }
      $step=TargetAnalyzer::configurationStep($target,$targets);
      if($step!==''){
