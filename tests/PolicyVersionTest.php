@@ -12,4 +12,8 @@ $config=['ai'=>['models'=>['google'=>'gemini-test','openrouter'=>'vendor/model-t
 if(AppPolicy::aiModel($config,'google')!=='gemini-test'||AppPolicy::aiModel($config,'openrouter')!=='vendor/model-test'){
     fwrite(STDERR,"Configured AI models were not honored.\n");exit(1);
 }
+$buildApi=(string)file_get_contents(dirname(__DIR__).'/public/api/builds.php');
+if(!str_contains($buildApi,"require __DIR__ . '/../../src/AppPolicy.php';")){
+    fwrite(STDERR,"Build API uses AppPolicy without loading it.\n");exit(1);
+}
 echo "Policy version tests passed.\n";

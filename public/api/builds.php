@@ -4,6 +4,7 @@ require __DIR__ . '/../../src/GitHubClient.php';
 require __DIR__ . '/../../src/WorkflowEngine.php';
 require __DIR__ . '/../../src/TargetAnalyzer.php';
 require __DIR__ . '/../../src/AITargetAnalyzer.php';
+require __DIR__ . '/../../src/AppPolicy.php';
 require_method('GET','POST');
 $user=require_user();
 verify_csrf();
