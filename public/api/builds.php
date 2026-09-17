@@ -100,13 +100,13 @@ try {
  $github=new GitHubClient(github_token((int)$user['id']));
  // Re-analyze and synchronize the workflow before every dispatch. This upgrades
  // projects connected with an older ESPForge generator without manual deletion.
- $tree=$github->tree($repository['full_name'],$repository['default_branch']); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');$commitSha=(string)($tree['sha']??'');$targetCacheKey=$repo.':'.$commitSha;
+ $tree=$github->tree($repository['full_name'],$repository['default_branch']); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');$commitSha=(string)($tree['sha']??'');
  $analysis=WorkflowEngine::analyze($paths); $record=user_record((int)$user['id']);
- $provider=(string)($record['ai_provider']??''); $key=decrypt_secret($record['ai_api_key']??null);
+ $provider=(string)($record['ai_provider']??''); $key=decrypt_secret($record['ai_api_key']??null);$analysisVersion='targets-v2';$targetSessionKey=$repo.':'.$commitSha.':'.$analysisVersion;$targetPersistentKey=$repository['full_name'].':'.$commitSha.':'.$analysisVersion.':'.$provider.':'.(string)($record['ai_key_fingerprint']??'');
  $fallback=$key&&in_array($provider,['google','openrouter'],true)?fn()=>(new AITargetAnalyzer($provider,$key))->discover($github,$repository['full_name'],$repository['default_branch'],$paths):null;
- $cachedTargets=$_SESSION['target_analysis_cache'][$targetCacheKey]??null;
- $targets=$commitSha!==''&&is_array($cachedTargets)&&time()-(int)($cachedTargets['time']??0)<1800?($cachedTargets['targets']??[]):TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths,$fallback);
- if($commitSha!==''&&!isset($_SESSION['target_analysis_cache'][$targetCacheKey]))$_SESSION['target_analysis_cache'][$targetCacheKey]=['time'=>time(),'targets'=>$targets,'ai'=>(bool)$key];
+ $cachedTargets=$_SESSION['target_analysis_cache'][$targetSessionKey]??analysis_cache_get('targets',$targetPersistentKey,86400);
+ $targets=$commitSha!==''&&is_array($cachedTargets)&&time()-(int)($cachedTargets['time']??0)<86400?($cachedTargets['targets']??[]):TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths,$fallback);
+ if($commitSha!==''&&!is_array($cachedTargets))analysis_cache_set('targets',$targetPersistentKey,['time'=>time(),'targets'=>$targets,'ai'=>(bool)$key]);
  $targetId=(string)($data['target_id']??'');
  if(count($targets)>1 && $targetId==='') json_response(['error'=>'Select a hardware model before building.','code'=>'target_required','targets'=>$targets],422);
  $target=TargetAnalyzer::select($targets,$targetId!==''?$targetId:(string)$targets[0]['id']);
@@ -120,7 +120,7 @@ try {
      if(str_contains($original,'create_release:')) $inputs['create_release']='false';
  } else {
      $source=$targetFramework==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';$aiLibraries=[];
-     if($targetFramework==='arduino'&&$key&&in_array($provider,['google','openrouter'],true))try{$aiLibraries=(new AITargetAnalyzer($provider,$key))->discoverLibraries($source,$target);audit_event('build.ai_libraries_analyzed',['repository'=>$repository['full_name'],'count'=>count($aiLibraries)]);}catch(Throwable $aiError){error_log('ESPForge AI library analysis fallback: '.$aiError->getMessage());}
+     if($targetFramework==='arduino'&&$key&&in_array($provider,['google','openrouter'],true))try{$libraryCacheKey=$repository['full_name'].':'.$commitSha.':libraries-v2:'.(string)$target['id'].':'.$provider.':'.(string)($record['ai_key_fingerprint']??'');$cachedLibraries=analysis_cache_get('libraries',$libraryCacheKey,86400);if(is_array($cachedLibraries))$aiLibraries=$cachedLibraries['libraries']??[];else{$aiLibraries=(new AITargetAnalyzer($provider,$key))->discoverLibraries($source,$target);analysis_cache_set('libraries',$libraryCacheKey,['libraries'=>$aiLibraries]);}audit_event('build.ai_libraries_analyzed',['repository'=>$repository['full_name'],'count'=>count($aiLibraries),'cached'=>is_array($cachedLibraries)]);}catch(Throwable $aiError){error_log('ESPForge AI library analysis fallback: '.$aiError->getMessage());}
      $workflow=WorkflowEngine::workflow($targetFramework,$paths,$source,$aiLibraries);
      if($targetFramework==='arduino'){$compatibility=WorkflowEngine::sourceCompatibilityStep($source);if($compatibility!=='')$workflow=str_replace('      - name: Compile firmware',$compatibility.'      - name: Compile firmware',$workflow);}
      if($targetFramework==='arduino'&&!empty($target['core_version']))$workflow=preg_replace('/esp32:esp32@[0-9]+\.[0-9]+\.[0-9]+/','esp32:esp32@'.$target['core_version'],$workflow)??$workflow;
