@@ -16,11 +16,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: PHP syntax
         run: find config public/api src bin tests -name '*.php' -print0 | xargs -0 -n1 php -l
-      - name: Security and parser regression tests
-        run: |
-          php tests/TargetAnalyzerParserTest.php
-          php tests/WorkflowSafetyTest.php
-          php tests/WorkflowGenerationTest.php
+      - name: Target parser regression tests
+        run: php tests/TargetAnalyzerParserTest.php
+      - name: Workflow safety regression tests
+        run: php tests/WorkflowSafetyTest.php
+      - name: Workflow generation regression tests
+        run: php tests/WorkflowGenerationTest.php
       - name: JavaScript syntax
         run: |
           node --check public/assets/app.js
