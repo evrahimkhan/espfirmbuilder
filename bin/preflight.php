@@ -30,12 +30,11 @@ try{
         foreach($columns as $column)if(!in_array($column,$present,true))$failures[]="Missing database column: {$table}.{$column}";
     }
     $expectedIndexes=[
-        'repositories.uq_repositories_user_full_name'=>['user_id','full_name'],
-        'builds.repo_id'=>['repo_id','created_at'],
-        'builds.repo_id_2'=>['repo_id','source_commit_sha','target_id'],
-        'operational_metrics.idx_operational_metrics_name_created'=>['metric_name','created_at'],
+        'repositories'=>[['user_id','full_name']],
+        'builds'=>[['repo_id','created_at'],['repo_id','source_commit_sha','target_id']],
+        'operational_metrics'=>[['metric_name','created_at']],
     ];
-    foreach($expectedIndexes as $identity=>$expected){[$table,$index]=explode('.',$identity,2);$q=$pdo->prepare('SELECT COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=? ORDER BY SEQ_IN_INDEX');$q->execute([$table,$index]);$actual=$q->fetchAll(PDO::FETCH_COLUMN);if($actual!==$expected)$failures[]="Database index mismatch: {$identity}.";}
+    foreach($expectedIndexes as $table=>$expectedSequences){$q=$pdo->prepare('SELECT INDEX_NAME,COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? ORDER BY INDEX_NAME,SEQ_IN_INDEX');$q->execute([$table]);$indexes=[];foreach($q->fetchAll() as $row)$indexes[$row['INDEX_NAME']][]=$row['COLUMN_NAME'];foreach($expectedSequences as $expected)if(!in_array($expected,$indexes,true))$failures[]='Missing ordered database index: '.$table.'('.implode(',',$expected).').';}
     $expectedForeignKeys=[
         'repositories.user_id'=>['users','id','CASCADE'],'builds.repo_id'=>['repositories','id','CASCADE'],
         'audit_events.user_id'=>['users','id','SET NULL'],'flash_events.user_id'=>['users','id','CASCADE'],
