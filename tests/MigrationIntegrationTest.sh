@@ -7,7 +7,11 @@ mysql -h127.0.0.1 -uroot -proot -e 'DROP DATABASE IF EXISTS espforge; CREATE DAT
 mysql -h127.0.0.1 -uroot -proot espforge < database/schema.sql
 php bin/migrate.php --baseline-schema
 php bin/migrate.php
-php bin/preflight.php
+if ! preflight_output=$(php bin/preflight.php 2>&1); then
+  echo "::error title=Production preflight failed::${preflight_output//$'\n'/'%0A'}"
+  exit 1
+fi
+echo "$preflight_output"
 count=$(mysql -N -h127.0.0.1 -uroot -proot espforge -e 'SELECT COUNT(*) FROM schema_migrations')
 expected=$(find database/migrations -maxdepth 1 -name '*.sql' | wc -l)
 [[ "$count" -eq "$expected" ]]
