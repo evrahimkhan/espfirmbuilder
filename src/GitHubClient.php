@@ -73,9 +73,22 @@ final class GitHubClient
         $primaryDirectories=[];
         foreach($sources as $entry){$path=(string)$entry['path'];if(!preg_match('/\.ino$/i',$path)||preg_match('~(?:^|/)(?:test|tests|example|examples|demo|demos)(?:/|$)|(?:test|example|demo)[^/]*\.ino$~i',$path))continue;$directory=dirname($path);if($directory!=='.')$primaryDirectories[$directory]=true;}
         usort($sources,static function(array $left,array $right)use($primaryDirectories):int{$score=static function(array $entry)use($primaryDirectories):int{$path=(string)$entry['path'];$score=0;foreach($primaryDirectories as $directory=>$_)if(str_starts_with($path,$directory.'/')){$score-=1000;break;}if(preg_match('/\.ino$/i',$path))$score-=100;if(preg_match('~(?:^|/)(?:test|tests|example|examples|demo|demos)(?:/|$)~i',$path))$score+=2000;return $score;};return $score($left)<=>$score($right)?:strcasecmp((string)$left['path'],(string)$right['path']);});
-        $bundle='';$count=0;$maxBytes=6*1024*1024;
-        foreach($sources as $entry){if($count++ >= $limit||strlen($bundle)>=$maxBytes)break;$path=(string)$entry['path'];$content=$this->file($fullName,$path,$branch);if($content!==null)$bundle.="\n// ESPForge source: {$path}\n".substr($content,0,max(0,$maxBytes-strlen($bundle)));}
+        $sources=array_slice($sources,0,$limit);$bundle='';$maxBytes=6*1024*1024;
+        // Git trees already provide immutable blob SHAs. Retrieve bounded blobs in
+        // small parallel batches rather than making up to 140 serial API calls.
+        foreach(array_chunk($sources,10) as $batch){
+            $contents=$this->blobBatch($fullName,$batch);
+            foreach($batch as $entry){if(strlen($bundle)>=$maxBytes)break 2;$path=(string)$entry['path'];$content=$contents[$path]??null;if($content===null)$content=$this->file($fullName,$path,$branch);if($content!==null)$bundle.="\n// ESPForge source: {$path}\n".substr($content,0,max(0,$maxBytes-strlen($bundle)));}
+        }
         return $bundle;
+    }
+
+    private function blobBatch(string $fullName,array $entries): array
+    {
+        if(!function_exists('curl_multi_init'))return [];$multi=curl_multi_init();$handles=[];$buffers=[];$responses=[];
+        foreach($entries as $entry){$sha=(string)($entry['sha']??'');$path=(string)($entry['path']??'');if(!preg_match('/^[a-f0-9]{40}$/i',$sha)||$path==='')continue;$key=count($handles);$buffers[$key]='';$url='https://api.github.com/repos/'.$fullName.'/git/blobs/'.$sha;$ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_HTTPHEADER=>['Accept: application/vnd.github+json','Authorization: Bearer '.$this->token,'User-Agent: ESPForge','X-GitHub-Api-Version: 2022-11-28'],CURLOPT_TIMEOUT=>30,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use(&$buffers,$key):int{if(strlen($buffers[$key]) + strlen($chunk)>1024*1024)return 0;$buffers[$key].=$chunk;return strlen($chunk);}]);$handles[$key]=['handle'=>$ch,'path'=>$path];curl_multi_add_handle($multi,$ch);}
+        do{$status=curl_multi_exec($multi,$running);if($running)curl_multi_select($multi,1.0);}while($running&&$status===CURLM_OK);
+        foreach($handles as $key=>$item){$ch=$item['handle'];if((int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE)===200){$decoded=json_decode($buffers[$key],true);if(is_array($decoded)&&($decoded['encoding']??'')==='base64'){$content=base64_decode(str_replace("\n",'',(string)($decoded['content']??'')),true);if($content!==false)$responses[$item['path']]=$content;}}curl_multi_remove_handle($multi,$ch);curl_close($ch);}curl_multi_close($multi);return $responses;
     }
 
     public function putFile(string $fullName, string $path, string $branch, string $content, string $message): array
