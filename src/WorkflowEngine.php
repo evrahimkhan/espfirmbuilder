@@ -92,6 +92,15 @@ YAML;
               # ESP-IDF symbol that is intentionally hidden by the C declaration order.
               implementation = implementation.replace('ieee80211_raw_frame_sanity_check(', 'marauder_ieee80211_raw_frame_sanity_check(')
               wifi_cpp.write_text(implementation)
+          battery_h, battery_cpp = root / "BatteryInterface.h", root / "BatteryInterface.cpp"
+          if battery_h.is_file() and battery_cpp.is_file():
+              header = battery_h.read_text(errors="ignore")
+              header, changed = re.subn(r'(?m)^(\s*)AXP192\s+axp192_obj\s*;', r'\1extern AXP192 axp192_obj;', header, count=1)
+              battery_h.write_text(header)
+              implementation = battery_cpp.read_text(errors="ignore")
+              if changed and not re.search(r'(?m)^\s*AXP192\s+axp192_obj\s*;', implementation):
+                  implementation = implementation.replace('#include "BatteryInterface.h"', '#include "BatteryInterface.h"\n\n#ifdef HAS_AXP192\nAXP192 axp192_obj;\n#endif', 1)
+                  battery_cpp.write_text(implementation)
           gps = root / "GpsInterface.cpp"
           if gps.is_file():
               text = gps.read_text(errors="ignore")

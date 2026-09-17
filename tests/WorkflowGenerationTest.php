@@ -28,7 +28,7 @@ if(!str_contains($localWorkflow,"if not key or key in installed: continue")){fwr
 $multiSketch=WorkflowEngine::workflow('arduino',['TestFile.ino','esp32_marauder/esp32_marauder.ino','examples/Demo/Demo.ino'],'');
 if(!str_contains($multiSketch,"firmware-output 'esp32_marauder'")){fwrite(STDERR,"Arduino sketch selection chose a test/example instead of the primary sketch.\n");exit(1);}
 $compatibility=WorkflowEngine::sourceCompatibilityStep('#define MARAUDER_VERSION "test"\nchar index_html[MAX_HTML_SIZE] = "TEST";\nHardwareSerial Serial2(GPS_SERIAL_INDEX);');
-foreach(['EvilPortal.h','operationInProgress','marauder_ieee80211_raw_frame_sanity_check','HardwareSerial\\s+Serial2'] as $needle)if(!str_contains($compatibility,$needle)){fwrite(STDERR,"Source compatibility patch is incomplete.\n");exit(1);}
+foreach(['EvilPortal.h','operationInProgress','marauder_ieee80211_raw_frame_sanity_check','extern AXP192 axp192_obj','HardwareSerial\\s+Serial2'] as $needle)if(!str_contains($compatibility,$needle)){fwrite(STDERR,"Source compatibility patch is incomplete.\n");exit(1);}
 if(str_contains($compatibility,"marauder_ieee80211_raw_frame_sanity_check(', 1)")){fwrite(STDERR,"Raw-frame compatibility rename does not update call sites.\n");exit(1);}
 if(!str_contains($compatibility,'#if SOC_UART_NUM <= 2')){fwrite(STDERR,"Serial2 compatibility does not preserve two-UART targets.\n");exit(1);}
 $roomyFqbn=WorkflowEngine::compatibleFqbn('esp32:esp32:d32:PartitionScheme=min_spiffs','-DMARAUDER_CYD_2USB','#define MARAUDER_VERSION "test"');
