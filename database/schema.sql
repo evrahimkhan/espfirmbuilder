@@ -100,3 +100,11 @@ CREATE TABLE build_plans (
  UNIQUE KEY uq_build_plan_revision_target(repo_id,source_commit_sha,analyzer_version,target_id),
  INDEX idx_build_plans_repo_status(repo_id,status,created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE github_webhook_deliveries (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ delivery_id VARCHAR(100) NOT NULL UNIQUE,
+ event_name VARCHAR(80) NOT NULL,
+ status VARCHAR(30) NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ INDEX idx_webhook_deliveries_created(created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

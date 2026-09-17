@@ -9,6 +9,7 @@ if(!class_exists('ZipArchive')) $failures[]='PHP zip extension is required for s
 if(!is_dir(sys_get_temp_dir())||!is_writable(sys_get_temp_dir())) $failures[]='PHP temporary directory is not writable.';
 if(!filter_var((string)($config['mail']['from']??''),FILTER_VALIDATE_EMAIL)) $failures[]='MAIL_FROM/mail.from is not a valid email address.';
 if(($config['app']['env']??'')!=='production') $warnings[]='APP_ENV is not production.';
+if(($config['app']['env']??'')==='production'&&strlen((string)($config['github']['webhook_secret']??''))<24)$failures[]='GITHUB_WEBHOOK_SECRET must contain at least 24 characters.';
 
 try{
     $pdo=db();$pdo->query('SELECT 1');
@@ -25,6 +26,7 @@ try{
         'operational_metrics'=>['metric_name','duration_ms','outcome','metadata_json','created_at'],
         'analysis_jobs'=>['repo_id','source_commit_sha','analyzer_version','status','attempts','result_encrypted','available_at'],
         'build_plans'=>['plan_uuid','repo_id','source_commit_sha','target_id','target_config_json','plan_sha256','status','approved_by','approved_at'],
+        'github_webhook_deliveries'=>['delivery_id','event_name','status','created_at'],
     ];
     foreach($required as $table=>$columns){
         $q=$pdo->prepare('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?');$q->execute([$table]);$present=$q->fetchAll(PDO::FETCH_COLUMN);
@@ -37,6 +39,7 @@ try{
         'operational_metrics'=>[['metric_name','created_at']],
         'analysis_jobs'=>[['status','available_at','id'],['repo_id','source_commit_sha','analyzer_version']],
         'build_plans'=>[['repo_id','status','created_at'],['repo_id','source_commit_sha','analyzer_version','target_id']],
+        'github_webhook_deliveries'=>[['created_at']],
     ];
     foreach($expectedIndexes as $table=>$expectedSequences){$q=$pdo->prepare('SELECT INDEX_NAME,COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? ORDER BY INDEX_NAME,SEQ_IN_INDEX');$q->execute([$table]);$indexes=[];foreach($q->fetchAll() as $row)$indexes[$row['INDEX_NAME']][]=$row['COLUMN_NAME'];foreach($expectedSequences as $expected)if(!in_array($expected,$indexes,true))$failures[]='Missing ordered database index: '.$table.'('.implode(',',$expected).').';}
     $expectedForeignKeys=[

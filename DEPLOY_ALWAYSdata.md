@@ -44,6 +44,7 @@ Edit `~/espforge/config/config.local.php` and set:
 - MySQL DSN, username, and password
 - Generated encryption key
 - GitHub OAuth client ID and secret
+- A separate random GitHub webhook secret of at least 24 characters
 - Google OAuth client ID and secret
 - `app.env` set to `production`
 - A valid `mail.from` address for verification and password recovery
@@ -129,6 +130,17 @@ https://ACCOUNT.alwaysdata.net/api/auth.php?action=google_callback
 ```
 
 Replace the hostname with a custom domain if one is configured. OAuth callback URLs must exactly match the URL in `config.local.php`.
+
+Configure a GitHub repository or organization webhook with:
+
+```text
+Payload URL: https://ACCOUNT.alwaysdata.net/api/github-webhook.php
+Content type: application/json
+Secret: the separate github.webhook_secret value
+Event: Workflow runs
+```
+
+Do not reuse the OAuth client secret or application encryption key as the webhook secret. ESPForge verifies `X-Hub-Signature-256`, deduplicates delivery IDs, and only reconciles its generated workflow.
 
 ## 7. Verify the installation
 

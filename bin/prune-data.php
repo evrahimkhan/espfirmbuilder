@@ -15,6 +15,7 @@ try{
         'operational metrics'=>"DELETE FROM operational_metrics WHERE created_at<DATE_SUB(NOW(),INTERVAL 90 DAY)",
         'completed analysis jobs'=>"DELETE FROM analysis_jobs WHERE status IN ('completed','failed') AND updated_at<DATE_SUB(NOW(),INTERVAL 30 DAY)",
         'superseded build plans'=>"DELETE FROM build_plans WHERE status='superseded' AND updated_at<DATE_SUB(NOW(),INTERVAL 30 DAY)",
+        'webhook deliveries'=>"DELETE FROM github_webhook_deliveries WHERE created_at<DATE_SUB(NOW(),INTERVAL 30 DAY)",
     ];
     foreach($statements as $label=>$sql){$counts[$label]=$pdo->exec($sql);}
     $pdo->commit();

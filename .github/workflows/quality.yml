@@ -36,6 +36,8 @@ jobs:
         run: php tests/AnalysisQueuePolicyTest.php
       - name: Project profile regression tests
         run: php tests/ProjectProfileTest.php
+      - name: Signed webhook regression tests
+        run: php tests/GitHubWebhookPolicyTest.php
       - name: Target parser regression tests
         run: php tests/TargetAnalyzerParserTest.php
       - name: Workflow safety regression tests
