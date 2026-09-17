@@ -7,7 +7,7 @@ function archive_safety_error(string $path,int $maxEntryBytes=104857600): ?strin
  $zip->close();return null;
 }
 if(!class_exists('ZipArchive')) json_response(['error'=>'Secure artifact inspection is unavailable on this server.'],503);
-$user=require_user();
+$downloadStarted=microtime(true);$user=require_user();
 if($_SERVER['REQUEST_METHOD']!=='POST') json_response(['error'=>'Downloads require a secure POST request.'],405);
 verify_csrf_value($_POST['csrf']??'');
 rate_limit('build-download',10,300);
@@ -74,7 +74,7 @@ if($kind==='artifact'&&class_exists('ZipArchive')){
   $zip->close();
  }
 }
-$filename=preg_replace('/[^A-Za-z0-9_.-]/','_',$filename)?:'espforge-download.zip';$size=filesize($outputPath);audit_event('build.download_started',['build_id'=>$id,'kind'=>$kind,'size'=>$size]);
+$filename=preg_replace('/[^A-Za-z0-9_.-]/','_',$filename)?:'espforge-download.zip';$size=filesize($outputPath);audit_event('build.download_started',['build_id'=>$id,'kind'=>$kind,'size'=>$size]);operational_metric('build.download',(int)round((microtime(true)-$downloadStarted)*1000),'success',['kind'=>$kind,'size'=>$size]);
 header('Content-Type: application/zip');header('Content-Disposition: attachment; filename="'.$filename.'"');header('Content-Length: '.$size);header('Cache-Control: private, no-store');header('X-Content-Type-Options: nosniff');
 $stream=fopen($outputPath,'rb');if($stream!==false){while(!feof($stream)){echo fread($stream,1024*1024);flush();}fclose($stream);}
 if($outputPath!==$temporary)@unlink($outputPath);@unlink($temporary);

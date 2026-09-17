@@ -15,8 +15,9 @@ final class GitHubClient
             'User-Agent: ESPForge',
             'X-GitHub-Api-Version: 2022-11-28',
         ];
-        $ch = curl_init($url); $response=''; $overflow=false; $maxBytes=15*1024*1024;
+        $ch = curl_init($url); $response=''; $overflow=false; $maxBytes=15*1024*1024;$responseHeaders=[];$started=microtime(true);
         curl_setopt_array($ch, [
+            CURLOPT_HEADERFUNCTION => static function($curl,string $line)use(&$responseHeaders):int{$length=strlen($line);if(str_contains($line,':')){[$name,$value]=explode(':',$line,2);$responseHeaders[strtolower(trim($name))]=trim($value);}return $length;},
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_TIMEOUT => 30,
@@ -36,12 +37,15 @@ final class GitHubClient
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $error = curl_error($ch);
         curl_close($ch);
+        $duration=(int)round((microtime(true)-$started)*1000);$remaining=isset($responseHeaders['x-ratelimit-remaining'])?(int)$responseHeaders['x-ratelimit-remaining']:null;$retryAfter=isset($responseHeaders['retry-after'])?max(0,(int)$responseHeaders['retry-after']):null;
+        if(function_exists('operational_metric'))operational_metric('github.api',$duration,($status>=200&&$status<300)?'success':'failure',['method'=>$method,'route_hash'=>substr(hash('sha256',strtok($path,'?')),0,16),'http_status'=>$status,'rate_remaining'=>$remaining,'retry_after'=>$retryAfter]);
         if ($ok === false || $error) throw new RuntimeException($overflow?'GitHub response exceeded the safety limit.':'GitHub request failed: ' . $error);
         if ($status === 204) return [];
         $decoded = json_decode($response, true);
         if ($status < 200 || $status >= 300) {
             $message = is_array($decoded) ? ($decoded['message'] ?? 'Unknown GitHub error') : 'Unexpected response';
-            throw new RuntimeException("GitHub API returned {$status}: ".substr((string)$message,0,500), $status);
+            $retryMessage=$retryAfter!==null?' Retry after '.$retryAfter.' seconds.':($remaining===0?' GitHub rate limit is exhausted.':'');
+            throw new RuntimeException("GitHub API returned {$status}: ".substr((string)$message,0,500).$retryMessage, $status);
         }
         return $raw ? $response : (is_array($decoded) ? $decoded : []);
     }
@@ -77,8 +81,9 @@ final class GitHubClient
         // Git trees already provide immutable blob SHAs. Retrieve bounded blobs in
         // small parallel batches rather than making up to 140 serial API calls.
         foreach(array_chunk($sources,10) as $batch){
-            $contents=$this->blobBatch($fullName,$batch);
-            foreach($batch as $entry){if(strlen($bundle)>=$maxBytes)break 2;$path=(string)$entry['path'];$content=$contents[$path]??null;if($content===null)$content=$this->file($fullName,$path,$branch);if($content!==null)$bundle.="\n// ESPForge source: {$path}\n".substr($content,0,max(0,$maxBytes-strlen($bundle)));}
+            $started=microtime(true);$contents=$this->blobBatch($fullName,$batch);$fallbacks=0;
+            foreach($batch as $entry){if(strlen($bundle)>=$maxBytes)break 2;$path=(string)$entry['path'];$content=$contents[$path]??null;if($content===null){$fallbacks++;$content=$this->file($fullName,$path,$branch);}if($content!==null)$bundle.="\n// ESPForge source: {$path}\n".substr($content,0,max(0,$maxBytes-strlen($bundle)));}
+            if(function_exists('operational_metric'))operational_metric('github.blob_batch',(int)round((microtime(true)-$started)*1000),$fallbacks===0?'success':'fallback',['requested'=>count($batch),'parallel'=>count($contents),'fallbacks'=>$fallbacks]);
         }
         return $bundle;
     }
