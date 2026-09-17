@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: PHP syntax
         run: find config public/api src bin tests -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Security header regression tests
+        run: php tests/SecurityHeadersTest.php
       - name: Target parser regression tests
         run: php tests/TargetAnalyzerParserTest.php
       - name: Workflow safety regression tests
