@@ -15,7 +15,8 @@ try{
     $required=[
         'users'=>['email_verified_at','session_version','ai_key_fingerprint'],
         'repositories'=>['user_id','full_name'],
-        'builds'=>['build_uuid','target_id','target_name','github_run_id','completed_at'],
+        'builds'=>['build_uuid','target_id','target_name','source_commit_sha','analyzer_version','target_config_json','workflow_sha256','github_run_id','completed_at'],
+        'schema_migrations'=>['migration','checksum','applied_at'],
         'audit_events'=>['event_type','metadata_json'],
         'password_reset_tokens'=>['token_hash','expires_at'],
         'email_verification_tokens'=>['token_hash','expires_at'],
@@ -28,6 +29,7 @@ try{
         foreach($columns as $column)if(!in_array($column,$present,true))$failures[]="Missing database column: {$table}.{$column}";
     }
     $q=$pdo->prepare("SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='repositories' AND INDEX_NAME='uq_repositories_user_full_name'");$q->execute();if((int)$q->fetchColumn()===0)$failures[]='Missing repository uniqueness index.';
+    $migrationDirectory=__DIR__.'/../database/migrations';foreach(glob($migrationDirectory.'/*.sql')?:[] as $file){$name=basename($file,'.sql');$q=$pdo->prepare('SELECT checksum FROM schema_migrations WHERE migration=?');$q->execute([$name]);$recorded=$q->fetchColumn();$actual=hash_file('sha256',$file);if($recorded===false)$failures[]="Unapplied database migration: {$name}";elseif(!is_string($actual)||!hash_equals((string)$recorded,$actual))$failures[]="Migration checksum drift: {$name}";}
 }catch(Throwable $error){$failures[]='Database check failed: '.$error->getMessage();}
 
 foreach($warnings as $warning)fwrite(STDOUT,"WARN  {$warning}\n");

@@ -78,6 +78,16 @@ mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < databa
 mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_006_distributed_rate_limits.sql
 mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_007_build_target_identity.sql
 mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260917_008_build_plan_provenance.sql
+mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260917_009_migration_ledger.sql
+```
+
+After the one-time existing-database baseline, use the checksum-tracked runner for every deployment:
+
+```bash
+# Existing installation only: verify the schema first, then baseline through 007.
+php bin/migrate.php --baseline-through=20260912_007_build_target_identity
+# Applies 008/009 and verifies checksums on later deployments.
+php bin/migrate.php
 ```
 
 ## 5. Create the PHP site
