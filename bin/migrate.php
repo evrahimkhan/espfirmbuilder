@@ -7,7 +7,9 @@ function column_matches(PDO $pdo,string $statement): bool {
     if(!preg_match('/ALTER\s+TABLE\s+`?([A-Za-z0-9_]+)`?\s+ADD\s+COLUMN\s+`?([A-Za-z0-9_]+)`?\s+([A-Za-z]+(?:\([0-9,]+\))?)(.*)$/is',$statement,$m))return false;
     $q=$pdo->prepare('SELECT COLUMN_TYPE,IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?');$q->execute([$m[1],$m[2]]);$row=$q->fetch();if(!$row)return false;
     $expectedType=strtolower(preg_replace('/\s+/','',$m[3]));$actualType=strtolower(preg_replace('/\s+/','',(string)$row['COLUMN_TYPE']));$expectedNullable=stripos($m[4],'NOT NULL')===false;
-    return $expectedType===$actualType&&(($row['IS_NULLABLE']==='YES')===$expectedNullable);
+    // MariaDB implements JSON as LONGTEXT with an automatic JSON_VALID check.
+    $typeMatches=$expectedType===$actualType||($expectedType==='json'&&in_array($actualType,['json','longtext'],true));
+    return $typeMatches&&(($row['IS_NULLABLE']==='YES')===$expectedNullable);
 }
 function index_matches(PDO $pdo,string $statement): bool {
     if(!preg_match('/CREATE\s+(UNIQUE\s+)?INDEX\s+`?([A-Za-z0-9_]+)`?\s+ON\s+`?([A-Za-z0-9_]+)`?\s*\(([^)]+)\)/i',$statement,$m))return false;
