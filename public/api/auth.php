@@ -184,6 +184,6 @@ if (in_array($action, ['github_callback', 'google_callback'], true)) {
         oauth_dashboard_error('This provider identity is already linked to another account. Sign out and use the originally linked account.');
     }
     db()->prepare('UPDATE users SET email_verified_at=COALESCE(email_verified_at,NOW()) WHERE id=?')->execute([$id]);$deleteScope=!empty($oauthRecord['delete_scope']);
-    unset($_SESSION['oauth_states'][$oauthState]); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider,'delete_scope'=>$deleteScope]); header('Location: ../dashboard.html'); exit;
+    unset($_SESSION['oauth_states'][$oauthState],$_SESSION['github_connection_status']); session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(24)); $_SESSION['user']=['id'=>$id,'name'=>$name,'email'=>$sessionEmail]; $_SESSION['session_version']=(int)(user_record($id)['session_version']??1); $_SESSION['authenticated_at']=time(); audit_event('auth.oauth',['provider'=>$provider,'delete_scope'=>$deleteScope]); header('Location: ../dashboard.html'); exit;
 }
 json_response(['error' => 'Unknown action'], 404);

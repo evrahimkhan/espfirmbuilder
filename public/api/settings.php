@@ -6,8 +6,24 @@ verify_csrf();
 rate_limit('settings', $_SERVER['REQUEST_METHOD'] === 'GET' ? 60 : 15, 60);
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $record = user_record((int)$user['id']);
+    $github=['connected'=>false,'delete_permission'=>false,'message'=>'GitHub is not connected.'];
+    $cached=$_SESSION['github_connection_status']??null;
+    if(is_array($cached)&&time()-(int)($cached['time']??0)<60){$github=$cached['status'];}
+    elseif(!empty($record['github_token'])){
+        $token=decrypt_secret($record['github_token']);
+        if($token){
+            $headers=[];$body='';$ch=curl_init('https://api.github.com/user');
+            curl_setopt_array($ch,[CURLOPT_HTTPHEADER=>['Accept: application/vnd.github+json','Authorization: Bearer '.$token,'User-Agent: ESPForge','X-GitHub-Api-Version: 2022-11-28'],CURLOPT_TIMEOUT=>10,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_HEADERFUNCTION=>static function($curl,string $line)use(&$headers):int{$length=strlen($line);if(str_contains($line,':')){$parts=explode(':',$line,2);$headers[strtolower(trim($parts[0]))]=trim($parts[1]);}return $length;},CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use(&$body):int{if(strlen($body)+strlen($chunk)>262144)return 0;$body.=$chunk;return strlen($chunk);}]);
+            $ok=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);curl_close($ch);
+            if($ok!==false&&$status===200){$scopes=array_filter(array_map('trim',explode(',',strtolower((string)($headers['x-oauth-scopes']??'')))));$github=['connected'=>in_array('repo',$scopes,true)&&in_array('workflow',$scopes,true),'delete_permission'=>in_array('delete_repo',$scopes,true),'message'=>''];$github['message']=$github['connected']?'GitHub repository and workflow access is connected.':'GitHub credential is missing required repository or workflow access.';}
+            else $github=['connected'=>false,'delete_permission'=>false,'message'=>$status===401?'GitHub access has expired or was revoked. Reconnect GitHub.':'GitHub connection could not be verified. Try again shortly.'];
+        }
+        $_SESSION['github_connection_status']=['time'=>time(),'status'=>$github];
+    }
     json_response(['settings' => [
-        'github_connected' => !empty($record['github_token']),
+        'github_connected' => $github['connected'],
+        'github_delete_permission' => $github['delete_permission'],
+        'github_status_message' => $github['message'],
         'ai_provider' => $record['ai_provider'],
         'ai_key_configured' => !empty($record['ai_api_key']),
     ]]);

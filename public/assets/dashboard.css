@@ -9,3 +9,12 @@ button,.repo-actions button,.build-actions button,.panel-tools button{min-height
 @media(max-width:360px){aside nav button span,.aside-bottom>button span{white-space:normal;line-height:1.05}.shell>header p{display:none}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 .drop.dragging{border-color:var(--purple);background:#f3f0ff}
+
+.connection-status{display:flex;align-items:flex-start;gap:12px;margin:18px 0 12px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#f8f9fc}
+.connection-status>i{flex:0 0 12px;width:12px;height:12px;margin-top:4px;border-radius:50%;background:#a6afbe;box-shadow:0 0 0 4px #a6afbe22}
+.connection-status span,.connection-status b,.connection-status small{display:block;min-width:0}
+.connection-status b{font-size:13px}.connection-status small{margin-top:4px;color:var(--muted);font-size:11px;line-height:1.45}
+.connection-status.connected{border-color:#b9ead8;background:#f2fcf8}.connection-status.connected>i{background:#18a873;box-shadow:0 0 0 4px #18a87322}.connection-status.connected b{color:#16845e}
+.connection-status.disconnected{border-color:#f2c4cd;background:#fff7f8}.connection-status.disconnected>i{background:#d84b66;box-shadow:0 0 0 4px #d84b6622}.connection-status.disconnected b{color:#bd3f57}
+.connection-status.checking>i{background:var(--purple);box-shadow:0 0 0 4px #6847f522}
+@media(max-width:850px){.settings .github-connect{display:flex;width:100%;float:none!important;justify-content:center;text-align:center;white-space:normal;line-height:1.35;margin:8px 0 12px}.settings>small{display:block;line-height:1.55}.connection-status small{font-size:12px}}
