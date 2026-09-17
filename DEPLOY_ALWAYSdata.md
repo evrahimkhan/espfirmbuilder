@@ -65,7 +65,12 @@ mysql -h mysql-ACCOUNT.alwaysdata.net \
   -u DATABASE_USER -p DATABASE_NAME < ~/espforge/database/schema.sql
 ```
 
-Alternatively, open **Databases > MySQL > phpMyAdmin**, select the database, and import `database/schema.sql`.
+Alternatively, open **Databases > MySQL > phpMyAdmin**, select the database, and import `database/schema.sql`. Immediately initialize its verified migration ledger:
+
+```bash
+php bin/migrate.php --baseline-schema
+php bin/preflight.php
+```
 
 For an existing installation, do not re-import `schema.sql`. Back up MySQL and apply each unapplied file in `database/migrations/` in filename order **before** pulling PHP code that depends on it:
 
