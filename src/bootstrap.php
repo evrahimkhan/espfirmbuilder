@@ -11,6 +11,7 @@ error_reporting(E_ALL);
 set_exception_handler(static function (Throwable $error) use ($isProduction): never {
     $requestId = bin2hex(random_bytes(6));
     error_log("ESPForge unhandled exception [{$requestId}]: {$error}");
+    if(PHP_SAPI==='cli'){fwrite(STDERR,"ERROR {$error->getMessage()} [{$requestId}]\n");exit(1);}
     if (!headers_sent()) header('Content-Type: application/json; charset=utf-8');
     http_response_code(500);
     $payload = ['error' => 'An unexpected server error occurred.', 'request_id' => $requestId];

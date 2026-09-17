@@ -18,10 +18,12 @@ try{
         if(isset($applied[$name])){if(!hash_equals($applied[$name],$checksum))throw new RuntimeException("Checksum drift detected for applied migration {$name}");echo "verified {$name}\n";continue;}
         if($baseline!==null&&strcmp($name,$baseline)<=0){$q=$pdo->prepare('INSERT INTO schema_migrations(migration,checksum) VALUES(?,?)');$q->execute([$name,$checksum]);echo "baselined {$name}\n";continue;}
         $sql=file_get_contents($file);if($sql===false)throw new RuntimeException("Cannot read {$name}");
-        // MySQL DDL commits implicitly; the advisory lock and ledger ensure one
-        // migrator and make partial completion visible instead of pretending DDL
-        // is transactionally rollback-safe.
-        $pdo->exec($sql);$q=$pdo->prepare('INSERT INTO schema_migrations(migration,checksum) VALUES(?,?)');$q->execute([$name,$checksum]);echo "applied {$name}\n";
+        // PDO deployments commonly disable multi-statements. Execute this project's
+        // simple DDL files statement-by-statement. Duplicate column/index errors are
+        // safe here and permit recovery when MySQL committed part of an earlier run.
+        $statements=array_values(array_filter(array_map('trim',preg_split('/;\s*(?:\R|$)/',$sql)?:[])));
+        foreach($statements as $statement)try{$pdo->exec($statement);}catch(PDOException $error){$driver=(int)($error->errorInfo[1]??0);if(!in_array($driver,[1060,1061],true))throw $error;echo "recovered existing object in {$name}\n";}
+        $q=$pdo->prepare('INSERT INTO schema_migrations(migration,checksum) VALUES(?,?)');$q->execute([$name,$checksum]);echo "applied {$name}\n";
     }
     echo "Database schema is current.\n";
 }finally{$pdo->query("SELECT RELEASE_LOCK('espforge-schema-migrations')");}
