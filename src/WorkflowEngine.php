@@ -166,15 +166,19 @@ YAML;
 YAML;
     }
 
-    public static function manifestStep(string $framework,string $chip): string
+    public static function manifestStep(string $framework,string $chip,string $configDigest='',string $analyzerVersion=''): string
     {
         $framework=preg_replace('/[^a-z0-9_-]/i','',$framework)?:'unknown';
         $chip=preg_replace('/[^a-z0-9_-]/i','',$chip)?:'unknown';
+        $configDigest=preg_match('/^[a-f0-9]{64}$/',$configDigest)?$configDigest:'';
+        $analyzerVersion=preg_replace('/[^A-Za-z0-9_.-]/','',$analyzerVersion)??'';
         return <<<YAML
       - name: Generate ESPForge flashing manifest
         env:
           ESPFORGE_FRAMEWORK: "{$framework}"
           ESPFORGE_CHIP: "{$chip}"
+          ESPFORGE_CONFIG_DIGEST: "{$configDigest}"
+          ESPFORGE_ANALYZER_VERSION: "{$analyzerVersion}"
         run: |
           python - <<'PY'
           import hashlib, json, os, pathlib, subprocess
@@ -194,6 +198,8 @@ YAML;
               "chip": os.environ["ESPFORGE_CHIP"],
               "framework": os.environ["ESPFORGE_FRAMEWORK"],
               "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "configuration_sha256": os.environ["ESPFORGE_CONFIG_DIGEST"] or None,
+              "analyzer_version": os.environ["ESPFORGE_ANALYZER_VERSION"] or None,
               "files": files,
               "warning": "Offsets are intentionally unset unless supplied by the project toolchain. Verify offsets before flashing."
           }

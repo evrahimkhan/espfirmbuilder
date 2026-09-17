@@ -19,3 +19,4 @@ button,.repo-actions button,.build-actions button,.panel-tools button{min-height
 .connection-status.checking>i{background:var(--purple);box-shadow:0 0 0 4px #6847f522}
 @media(max-width:850px),(hover:none) and (pointer:coarse){.settings .github-connect{display:flex;width:100%;float:none!important;justify-content:center;text-align:center;white-space:normal;line-height:1.35;margin:8px 0 12px}.settings>small{display:block;line-height:1.55}.connection-status small{font-size:12px}}
 .target-source{display:inline-block;margin-left:6px;padding:3px 6px;border-radius:999px;background:#e4f8f0;color:#16845e;font:700 9px/1 ui-sans-serif,system-ui;font-style:normal;vertical-align:middle}.target-source.ai,.target-source.fallback{background:#fff2d8;color:#9a6200}.target-warning{color:#a45f00!important;white-space:normal!important}
+.target-source.ai_verified{background:#e9e3ff;color:#5d3ed0}

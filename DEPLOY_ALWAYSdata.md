@@ -77,6 +77,7 @@ mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < databa
 mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_005_flash_events.sql
 mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_006_distributed_rate_limits.sql
 mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_007_build_target_identity.sql
+mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260917_008_build_plan_provenance.sql
 ```
 
 ## 5. Create the PHP site

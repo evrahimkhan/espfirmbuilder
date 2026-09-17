@@ -102,7 +102,7 @@ try {
  // projects connected with an older ESPForge generator without manual deletion.
  $tree=$github->tree($repository['full_name'],$repository['default_branch']); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');$commitSha=(string)($tree['sha']??'');
  $analysis=WorkflowEngine::analyze($paths); $record=user_record((int)$user['id']);
- $provider=(string)($record['ai_provider']??''); $key=decrypt_secret($record['ai_api_key']??null);$analysisVersion='targets-v2';$targetSessionKey=$repo.':'.$commitSha.':'.$analysisVersion;$targetPersistentKey=$repository['full_name'].':'.$commitSha.':'.$analysisVersion.':'.$provider.':'.(string)($record['ai_key_fingerprint']??'');
+ $provider=(string)($record['ai_provider']??''); $key=decrypt_secret($record['ai_api_key']??null);$analysisVersion='targets-v3';$targetSessionKey=$repo.':'.$commitSha.':'.$analysisVersion;$targetPersistentKey=$repository['full_name'].':'.$commitSha.':'.$analysisVersion.':'.$provider.':'.(string)($record['ai_key_fingerprint']??'');
  $fallback=$key&&in_array($provider,['google','openrouter'],true)?fn()=>(new AITargetAnalyzer($provider,$key))->discover($github,$repository['full_name'],$repository['default_branch'],$paths):null;
  $cachedTargets=$_SESSION['target_analysis_cache'][$targetSessionKey]??analysis_cache_get('targets',$targetPersistentKey,86400);
  $targets=$commitSha!==''&&is_array($cachedTargets)&&time()-(int)($cachedTargets['time']??0)<86400?($cachedTargets['targets']??[]):TargetAnalyzer::discover($github,$repository['full_name'],$repository['default_branch'],$paths,$fallback);
@@ -111,6 +111,7 @@ try {
  if(count($targets)>1 && $targetId==='') json_response(['error'=>'Select a hardware model before building.','code'=>'target_required','targets'=>$targets],422);
  $target=TargetAnalyzer::select($targets,$targetId!==''?$targetId:(string)$targets[0]['id']);
  if(!$target) json_response(['error'=>'The selected hardware model is invalid or no longer available.'],422);
+ $targetConfigJson=json_encode($target,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);if(!is_string($targetConfigJson)||strlen($targetConfigJson)>65535)json_response(['error'=>'The selected hardware plan is too large.'],422);$configDigest=hash('sha256',$targetConfigJson);
  $buildUuid=uuid_v4(); $inputs=['espforge_build_uuid'=>$buildUuid];
  $targetFramework=in_array($target['type'],['arduino','arduino_define'],true)?'arduino':($target['type']==='esp-idf'?'esp-idf':$analysis['framework']);
  if($target['type']==='workflow_matrix'){
@@ -147,7 +148,7 @@ try {
      if($chip===''&&preg_match('/esp32(?:s2|s3|c3|c5|c6)?/i',(string)($target['id']??''),$chipMatch)) $chip=strtolower($chipMatch[0]);
      if(!in_array($chip,['esp32','esp32s2','esp32s3','esp32c3','esp32c5','esp32c6'],true))$chip='esp32';
      $uploadMarker='      - uses: actions/upload-artifact@';
-     $workflow=str_replace($uploadMarker,WorkflowEngine::artifactNamingStep((string)$target['name']).WorkflowEngine::manifestStep($targetFramework,$chip).$uploadMarker,$workflow);
+     $workflow=str_replace($uploadMarker,WorkflowEngine::artifactNamingStep((string)$target['name']).WorkflowEngine::manifestStep($targetFramework,$chip,$configDigest,$analysisVersion).$uploadMarker,$workflow);
  }
  $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name'].' [skip ci]');
  $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$targetFramework,$workflow,'workflow_ready',$repo]);
@@ -156,7 +157,8 @@ try {
  // Explicitly enable the generated workflow before dispatching it.
  try { $github->enableWorkflow($repository['full_name'],$workflowFile); }
  catch(RuntimeException $e){ if(!in_array($e->getCode(),[404,422],true)) throw $e; }
- $q=db()->prepare("INSERT INTO builds(repo_id,build_uuid,target_id,target_name,status,logs) VALUES(?,?,?,?,'queued',?)"); $q->execute([$repo,$buildUuid,substr((string)($target['id']??''),0,190),substr((string)$target['name'],0,120),$buildMessage]); $buildId=(int)db()->lastInsertId();
+ $workflowDigest=hash('sha256',$workflow);$aiModel=($target['ai_primary']??false)?($provider==='google'?'gemini-2.5-flash':'google/gemini-2.5-flash'):null;
+ $q=db()->prepare("INSERT INTO builds(repo_id,build_uuid,target_id,target_name,source_commit_sha,analyzer_version,ai_model,target_config_json,workflow_sha256,status,logs) VALUES(?,?,?,?,?,?,?,?,?,'queued',?)"); $q->execute([$repo,$buildUuid,substr((string)($target['id']??''),0,190),substr((string)$target['name'],0,120),preg_match('/^[a-f0-9]{40}$/i',$commitSha)?strtolower($commitSha):null,$analysisVersion,$aiModel,$targetConfigJson,$workflowDigest,$buildMessage]); $buildId=(int)db()->lastInsertId();
  try { $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs,$target['type']!=='workflow_matrix'); }
  catch(RuntimeException $dispatchError){ db()->prepare("UPDATE builds SET status='completed',conclusion='failure',completed_at=NOW(),logs=? WHERE id=?")->execute(['Dispatch failed: '.$dispatchError->getMessage(),$buildId]); throw $dispatchError; }
  audit_event('build.dispatched',['build_id'=>$buildId,'repository'=>$repository['full_name'],'target'=>$target['id']??$target['name'],'uuid'=>$buildUuid]);

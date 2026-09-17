@@ -18,13 +18,16 @@ final class TargetAnalyzer
         foreach(self::discoverPlatformIOTargets($github,$fullName,$branch,$paths) as $target)$targets[]=$target;
         foreach(self::discoverEspIdfTargets($github,$fullName,$branch,$paths) as $target)$targets[]=$target;
         foreach(self::discoverBoardDefines($github,$fullName,$branch,$paths) as $target)$targets[]=$target;
-        $targets=self::mergeTargets($targets);
+        $deterministic=self::mergeTargets($targets);$aiTargets=[];
 
-        // AI is a fallback only. It cannot replace or silently amend proven targets.
-        if(!$targets&&$aiFallback){
-            try{$aiTargets=$aiFallback();if(is_array($aiTargets))$targets=self::mergeTargets($aiTargets);}
-            catch(Throwable $e){error_log('ESPForge AI target fallback: '.$e->getMessage());}
+        // AI is the primary analyst: it runs for every configured account and its
+        // ordering/naming leads the result. Deterministic parsers remain the trust
+        // boundary that verifies executable environment/FQBN/configuration facts.
+        if($aiFallback){
+            try{$proposals=$aiFallback();if(is_array($proposals))$aiTargets=self::mergeTargets($proposals);}
+            catch(Throwable $e){error_log('ESPForge AI primary target analysis: '.$e->getMessage());}
         }
+        $targets=self::reconcileAiTargets($aiTargets,$deterministic);
         if($targets)return $targets;
 
         $source=$github->sourceBundle($fullName,$branch,array_map(fn($path)=>['path'=>$path,'type'=>'blob','size'=>0],$paths),20);
@@ -70,6 +73,29 @@ final class TargetAnalyzer
         $merged=[];
         foreach($targets as $target){if(!is_array($target)||empty($target['id'])||empty($target['type']))continue;$identity=match($target['type']){'platformio','platformio_disabled'=>'platformio:'.strtolower((string)($target['environment']??$target['id'])),'arduino','arduino_define'=>'arduino:'.strtolower((string)($target['flag']??$target['define']??$target['id'])),'esp-idf'=>'esp-idf:'.strtolower((string)($target['idf_target']??'')).':'.strtolower((string)($target['config_path']??implode(',',(array)($target['config_paths']??[])))),default=>(string)$target['type'].':'.strtolower((string)$target['id'])};if(!isset($merged[$identity])||($target['source']??'')==='workflow_metadata'){$target['id']=$identity;$merged[$identity]=$target;}}
         return array_values($merged);
+    }
+
+    private static function reconcileAiTargets(array $ai,array $deterministic): array
+    {
+        $result=[];$used=[];
+        foreach($ai as $proposal){$match=null;$matchIndex=null;
+            foreach($deterministic as $index=>$candidate){if(($proposal['type']??'')!==($candidate['type']??'')&&!(str_starts_with((string)($candidate['type']??''),'platformio')&&($proposal['type']??'')==='platformio')&&!(in_array($candidate['type']??'', ['arduino','arduino_define'],true)&&($proposal['type']??'')==='arduino'))continue;$same=match($proposal['type']??''){'platformio'=>strcasecmp((string)($proposal['environment']??''),(string)($candidate['environment']??''))===0,'esp-idf'=>strcasecmp((string)($proposal['idf_target']??''),(string)($candidate['idf_target']??''))===0,'arduino'=>(isset($proposal['fqbn'],$candidate['fqbn'])&&strcasecmp((string)$proposal['fqbn'],(string)$candidate['fqbn'])===0)||(isset($proposal['build_flags'],$candidate['build_flags'])&&trim((string)$proposal['build_flags'])===trim((string)$candidate['build_flags'])),default=>false};if($same){$match=$candidate;$matchIndex=$index;break;}}
+            if($match!==null){$verified=array_replace($proposal,$match);$verified['name']=$proposal['name']??$match['name'];$verified['source']='ai_verified';$verified['ai_primary']=true;$verified['evidence']=$match['evidence']??$match['config_path']??implode(', ',(array)($match['config_paths']??[]));$result[]=$verified;$used[$matchIndex]=true;continue;}
+            if(self::verifiedStandaloneAiTarget($proposal)){$proposal['source']='ai_verified';$proposal['ai_primary']=true;$proposal['requires_confirmation']=true;$proposal['warning']='AI selected this generic board because the repository has no authoritative hardware configuration. Review the FQBN before building.';$proposal['evidence']='Validated against ESPForge built-in ESP32 board policy';$result[]=$proposal;}
+        }
+        foreach($deterministic as $index=>$candidate)if(!isset($used[$index]))$result[]=$candidate;
+        return self::mergeTargets($result);
+    }
+
+    private static function verifiedStandaloneAiTarget(array $target): bool
+    {
+        if(($target['type']??'')==='arduino'){
+            $fqbn=(string)($target['fqbn']??'');$generic=['esp32','esp32s2','esp32s3','esp32c3','esp32c5','esp32c6'];
+            return preg_match('/^esp32:esp32:([a-z0-9]+)$/',$fqbn,$match)===1&&in_array($match[1],$generic,true);
+        }
+        // PlatformIO environments and ESP-IDF config pairings must be proven by
+        // repository configuration; AI cannot invent either executable identity.
+        return false;
     }
 
     private static function safeConfigPath(string $path): bool
@@ -293,15 +319,17 @@ YAML;
 
     private static function discoverEspIdfTargets(GitHubClient $github,string $fullName,string $branch,array $paths): array
     {
-        $chips=[]; $valid=['esp32','esp32s2','esp32s3','esp32c3','esp32c5','esp32c6'];
+        $targets=[];$valid=['esp32','esp32s2','esp32s3','esp32c3','esp32c5','esp32c6'];
         foreach($paths as $path){
-            if(!preg_match('~(^|/)(sdkconfig[^/]*|.*(?:target|board).*\.(?:cmake|conf|txt|defaults))$~i',$path)) continue;
-            $normalized=strtolower(preg_replace('/[^a-zA-Z0-9]/','',$path));
-            foreach($valid as $chip) if(str_contains($normalized,$chip)) $chips[$chip][]=$path;
-            $content=$github->file($fullName,$path,$branch)??'';
-            if(preg_match_all('/CONFIG_IDF_TARGET(?:_|=")?(ESP32(?:S2|S3|C3|C5|C6)?)/i',$content,$matches)) foreach($matches[1] as $chip) if(in_array(strtolower($chip),$valid,true)) $chips[strtolower($chip)][]=$path;
+            if(!preg_match('~(^|/)(sdkconfig[^/]*|.*(?:target|board).*\.(?:cmake|conf|txt|defaults))$~i',$path))continue;
+            $content=$github->file($fullName,$path,$branch)??'';$chips=[];
+            if(preg_match_all('/CONFIG_IDF_TARGET(?:_[A-Z0-9_]+)?\s*=\s*["\']?(esp32(?:s2|s3|c3|c5|c6)?)/i',$content,$matches))foreach($matches[1] as $chip)$chips[strtolower($chip)]=true;
+            if(!$chips){$normalized=strtolower(preg_replace('/[^a-zA-Z0-9]/','',$path));foreach(array_reverse($valid) as $chip)if(str_contains($normalized,$chip)){$chips[$chip]=true;break;}}
+            // Shared/ambiguous configs are not selectable until a deterministic
+            // chip-to-config relationship can be proven.
+            if(count($chips)!==1)continue;$chip=array_key_first($chips);if(!in_array($chip,$valid,true)||!self::safeConfigPath($path))continue;
+            $label=$chip==='esp32'?'ESP32':strtoupper(substr($chip,0,5).'-'.substr($chip,5));$targets[]=['id'=>'esp-idf:'.substr(hash('sha256',$chip."\0".$path),0,16),'name'=>$label.' · '.basename($path),'type'=>'esp-idf','idf_target'=>$chip,'config_path'=>$path,'source'=>'esp-idf','evidence'=>$path];
         }
-        $targets=[]; foreach($chips as $chip=>$configPaths) $targets[]=['id'=>$chip,'name'=>$chip==='esp32'?'ESP32':strtoupper(substr($chip,0,5).'-'.substr($chip,5)),'type'=>'esp-idf','idf_target'=>$chip,'config_paths'=>array_values(array_unique($configPaths)),'source'=>'esp-idf'];
         return $targets;
     }
 

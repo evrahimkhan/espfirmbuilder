@@ -20,6 +20,11 @@ if(count($rows)!==1||($rows[0]['build_flags']??'')!=='-DMARAUDER_V4'||($rows[0][
 $merge=new ReflectionMethod(TargetAnalyzer::class,'mergeTargets');$merge->setAccessible(true);
 $merged=$merge->invoke(null,[['id'=>'MARAUDER_V4','name'=>'Config','type'=>'arduino_define','define'=>'MARAUDER_V4','source'=>'config'],['id'=>'MARAUDER_V4','name'=>'Workflow','type'=>'arduino','flag'=>'MARAUDER_V4','source'=>'workflow_metadata']]);
 if(count($merged)!==1||$merged[0]['name']!=='Workflow'){fwrite(STDERR,"Target provenance merge failed.\n");exit(1);}
+$reconcile=new ReflectionMethod(TargetAnalyzer::class,'reconcileAiTargets');$reconcile->setAccessible(true);
+$primary=$reconcile->invoke(null,[['id'=>'ai-v4','name'=>'AI V4','type'=>'arduino','fqbn'=>'esp32:esp32:d32:PartitionScheme=min_spiffs','build_flags'=>'-DMARAUDER_V4','source'=>'ai']],[['id'=>'v4','name'=>'Config V4','type'=>'arduino','fqbn'=>'esp32:esp32:d32:PartitionScheme=min_spiffs','build_flags'=>'-DMARAUDER_V4','source'=>'workflow_metadata','evidence'=>'build.yml']]);
+if(count($primary)!==1||empty($primary[0]['ai_primary'])||$primary[0]['name']!=='AI V4'||$primary[0]['source']!=='ai_verified'){fwrite(STDERR,"AI-primary deterministic reconciliation failed.\n");exit(1);}
+$unverified=$reconcile->invoke(null,[['id'=>'bad','name'=>'Bad','type'=>'arduino','fqbn'=>'esp32:esp32:d32:PartitionScheme=imaginary','source'=>'ai']],[]);
+if($unverified!==[]){fwrite(STDERR,"Unverified AI FQBN was accepted.\n");exit(1);}
 $idfStep=TargetAnalyzer::configurationStep(['type'=>'esp-idf','config_path'=>'configs/sdkconfig.s3'],[]);
 if(!str_contains($idfStep,'Apply selected ESP-IDF hardware configuration')||!str_contains($idfStep,'shutil.copyfile')){fwrite(STDERR,"ESP-IDF selected configuration is not applied.\n");exit(1);}
 echo "TargetAnalyzer parser tests passed\n";

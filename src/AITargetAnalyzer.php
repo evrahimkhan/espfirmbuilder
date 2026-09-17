@@ -17,13 +17,13 @@ final class AITargetAnalyzer
         }
         $prompt=<<<PROMPT
 Analyze this ESP firmware repository and identify every independently selectable hardware/ESP model that can be compiled. Return ONLY a JSON array. Do not use markdown.
-Each item must be: {"id":"safe-stable-id","name":"human model name","type":"platformio|arduino|esp-idf","environment":"PlatformIO env or empty","fqbn":"Arduino FQBN or empty","idf_target":"esp32/esp32s2/esp32s3/esp32c3/esp32c5/esp32c6 or empty","build_flags":"optional safe compiler defines"}.
+Each item must be: {"id":"safe-stable-id","name":"human model name","type":"platformio|arduino|esp-idf","environment":"PlatformIO env or empty","fqbn":"Arduino FQBN or empty","idf_target":"esp32/esp32s2/esp32s3/esp32c3/esp32c5/esp32c6 or empty","build_flags":"optional safe compiler defines","evidence":"exact repository path from the supplied files","confidence":0.0}.
 Do not list native tests, features, libraries, partition variants, or duplicate aliases as hardware. For PlatformIO, use exact [env:...] identifiers. For Arduino, infer FQBN and required board-selection -D flags from repository configs/workflows. If only one target is proven, return one item. If none are proven, return []. Never invent a model.
 
 {$digest}
 PROMPT;
         $text=$this->provider==='google'?$this->gemini($prompt):$this->openRouter($prompt);
-        return $this->validate($text);
+        return $this->validate($text,$paths);
     }
 
     public function discoverLibraries(string $source,array $context=[]): array
@@ -71,14 +71,16 @@ PROMPT;
         return is_array($decoded)?$decoded:[];
     }
 
-    private function validate(string $text): array
+    private function validate(string $text,array $repositoryPaths): array
     {
         $text=trim(preg_replace('/^```(?:json)?|```$/m','',trim($text))??$text); $items=json_decode($text,true);
         if(!is_array($items)) throw new RuntimeException('AI returned an invalid target analysis.',502);
         $result=[]; foreach($items as $item){
             if(!is_array($item)||!in_array($item['type']??'',['platformio','arduino','esp-idf'],true)) continue;
             $id=preg_replace('/[^A-Za-z0-9_.-]/','-',(string)($item['id']??'')); $name=trim((string)($item['name']??'')); if(!$id||!$name) continue;
-            $target=['id'=>$id,'name'=>substr($name,0,100),'type'=>$item['type'],'source'=>'ai'];
+            $evidence=(string)($item['evidence']??'');$confidence=(float)($item['confidence']??0);
+            $target=['id'=>$id,'name'=>substr($name,0,100),'type'=>$item['type'],'source'=>'ai','confidence'=>max(0,min(1,$confidence))];
+            if($evidence!==''&&in_array($evidence,$repositoryPaths,true))$target['evidence']=$evidence;
             if($item['type']==='platformio'&&preg_match('/^[A-Za-z0-9_.-]+$/',(string)($item['environment']??''))) $target['environment']=$item['environment'];
             if($item['type']==='arduino'&&preg_match('/^[A-Za-z0-9_.:-]+(?:,[A-Za-z0-9_.=-]+)*$/',(string)($item['fqbn']??''))) $target['fqbn']=$item['fqbn'];
             if($item['type']==='esp-idf'&&preg_match('/^esp32(?:s2|s3|c3|c5|c6)?$/',(string)($item['idf_target']??''))) $target['idf_target']=$item['idf_target'];
