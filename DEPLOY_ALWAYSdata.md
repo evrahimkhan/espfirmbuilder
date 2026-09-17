@@ -77,16 +77,14 @@ mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < databa
 mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_005_flash_events.sql
 mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_006_distributed_rate_limits.sql
 mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260912_007_build_target_identity.sql
-mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260917_008_build_plan_provenance.sql
-mysql -h mysql-ACCOUNT.alwaysdata.net -u DATABASE_USER -p DATABASE_NAME < database/migrations/20260917_009_migration_ledger.sql
 ```
 
-After the one-time existing-database baseline, use the checksum-tracked runner for every deployment:
+For an existing installation already current through 007, do **not** apply 008 manually. Establish the ledger and let the checksum-tracked runner apply 008/009:
 
 ```bash
-# Existing installation only: verify the schema first, then baseline through 007.
+# One time only: first verify manually that migrations through 007 exist.
 php bin/migrate.php --baseline-through=20260912_007_build_target_identity
-# Applies 008/009 and verifies checksums on later deployments.
+# On every later deployment, including immediately after that baseline:
 php bin/migrate.php
 ```
 
