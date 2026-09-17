@@ -3,3 +3,4 @@
 
 :where(button,a,input):focus-visible{outline:3px solid #20a4d8;outline-offset:3px}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+.cta>p{max-width:720px;margin:0 auto 28px;color:#b9c2d2;line-height:1.65}
