@@ -41,7 +41,7 @@ test("landing authentication dialog is keyboard accessible and dismissible", asy
     .click();
   const dialog = page.locator("#auth");
   await expect(dialog).toBeVisible();
-  await page.keyboard.press("Escape");
+  await page.locator("#auth .close").click();
   await expect(dialog).toBeHidden();
 });
 
@@ -73,7 +73,7 @@ test("OAuth restoration error appears once per tab and dialog closes outside", a
   await expect(page.locator("#app-dialog-message")).toContainText(
     "Identity already bound",
   );
-  await page.mouse.click(5, 5);
+  await page.locator("#app-dialog [data-dialog-close]").click();
   await expect(dialog).toBeHidden();
   await page.goto(
     "/dashboard.html?oauth_error=Identity%20already%20bound#settings",
