@@ -26,8 +26,12 @@ final class OfficialMetadata
             if(!in_array('6.1.19',$this->data['platformio']['versions'],true))throw new RuntimeException('PlatformIO version is absent from pinned official metadata.');
         }elseif($type!=='workflow_matrix')throw new RuntimeException('Target framework is not covered by pinned official metadata.');
     }
+    public function reviewedLibraries(array $libraries): array
+    {
+        return array_values(array_unique(array_filter($libraries,fn($library)=>is_string($library)&&in_array($library,$this->data['libraries'],true))));
+    }
     public function validateLibraries(array $libraries): void
     {
-        foreach($libraries as $library)if(!is_string($library)||!in_array($library,$this->data['libraries'],true))throw new RuntimeException('Library is absent from pinned official metadata: '.substr((string)$library,0,120));
+        if(count($this->reviewedLibraries($libraries))!==count($libraries))throw new RuntimeException('One or more libraries are absent from pinned official metadata.');
     }
 }
