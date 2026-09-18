@@ -40,24 +40,37 @@ final class TargetAnalyzer
 
     private static function parseWorkflowMatrix(string $yaml,string $path): array
     {
-        $targets=[];
-        // Parse bounded inline matrix objects independent of key order and quote style.
+        $fieldRows=[];
+        // Bounded flow-style rows, independent of key order and quote style.
         preg_match_all('/^\s*-\s*\{([^{}]{1,4000})\}\s*$/m',$yaml,$rows);
-        foreach($rows[1]??[] as $row){
-            $fields=[];preg_match_all('/([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:"([^"]*)"|\'([^\']*)\'|([^,]+))/', $row,$pairs,PREG_SET_ORDER);
-            foreach($pairs as $pair)$fields[strtolower($pair[1])]=trim((string)($pair[2]!==''?$pair[2]:($pair[3]!==''?$pair[3]:$pair[4])));
-            $name=(string)($fields['name']??'');$flag=(string)($fields['flag']??'');$fqbn=(string)($fields['fqbn']??$fields['fbqn']??'');
-            if($name!==''&&preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/',$flag)&&self::validEsp32Fqbn($fqbn)){
-                $target=['id'=>'arduino:'.strtolower($flag),'name'=>$name,'type'=>'arduino','fqbn'=>$fqbn,'flag'=>$flag,'build_flags'=>'-D'.$flag,'source'=>'workflow_metadata','evidence'=>$path];
-                if(preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/',(string)($fields['idf_ver']??'')))$target['core_version']=$fields['idf_ver'];
-                if(preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/',(string)($fields['nimble_ver']??'')))$target['nimble_version']=$fields['nimble_ver'];
-                if(preg_match('/^[A-Za-z0-9_.-]+\.h$/',(string)($fields['tft_file']??'')))$target['tft_setup']=$fields['tft_file'];
-                $targets[]=$target;continue;
-            }
-            $chip=strtolower((string)($fields['idf_target']??''));$config=(string)($fields['sdkconfig_file']??'');
-            if($name!==''&&preg_match('/^esp32(?:s2|s3|c3|c5|c6)?$/',$chip)&&self::safeConfigPath($config))$targets[]=['id'=>'esp-idf:'.substr(hash('sha256',$config),0,16),'name'=>$name,'type'=>'esp-idf','idf_target'=>$chip,'config_path'=>$config,'source'=>'workflow_metadata','evidence'=>$path];
-        }
-        return $targets;
+        foreach($rows[1]??[] as $row){$fields=[];preg_match_all('/([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:"([^"]*)"|\'([^\']*)\'|([^,]+))/', $row,$pairs,PREG_SET_ORDER);foreach($pairs as $pair)$fields[strtolower($pair[1])]=self::yamlScalar((string)($pair[2]!==''?$pair[2]:($pair[3]!==''?$pair[3]:$pair[4])));if($fields)$fieldRows[]=$fields;}
+
+        // Parse block-style matrix.include rows and safe YAML anchor merges. This
+        // deliberately handles scalar metadata only; executable YAML is never
+        // interpreted and still passes the compile-only workflow policy later.
+        $lines=preg_split('/\R/',$yaml)?:[];$anchors=[];$inInclude=false;$includeIndent=-1;$current=null;$rowIndent=-1;
+        $flush=static function()use(&$current,&$fieldRows,&$anchors):void{if(!is_array($current))return;$alias=$current['<<']??null;unset($current['<<']);if(is_string($alias)&&isset($anchors[$alias]))$current=array_replace($anchors[$alias],$current);if(isset($current['@anchor'])){$anchors[$current['@anchor']]=$current;unset($current['@anchor']);}$fieldRows[]=$current;$current=null;};
+        foreach($lines as $line){if(strlen($line)>4000)continue;$indent=strlen($line)-strlen(ltrim($line));
+            if(!$inInclude){if(preg_match('/^\s*include\s*:\s*(?:#.*)?$/',$line)){$inInclude=true;$includeIndent=$indent;}continue;}
+            if(trim($line)===''||preg_match('/^\s*#/',$line))continue;
+            if($indent<=$includeIndent){$flush();$inInclude=false;continue;}
+            if(preg_match('/^\s*-\s*(?:&([A-Za-z_][A-Za-z0-9_-]*)\s*)?(.*)$/',$line,$startRow)){$flush();$current=[];$rowIndent=$indent;if(($startRow[1]??'')!=='')$current['@anchor']=$startRow[1];$line=(string)$startRow[2];if($line==='')continue;}
+            elseif(!is_array($current)||$indent<=$rowIndent)continue;
+            if(preg_match('/^\s*([A-Za-z_][A-Za-z0-9_]*|<<)\s*:\s*(.*?)\s*(?:#.*)?$/',$line,$pair)){$value=self::yamlScalar($pair[2]);if($pair[1]==='<<'&&preg_match('/^\*([A-Za-z_][A-Za-z0-9_-]*)$/',$value,$alias))$value=$alias[1];$current[strtolower($pair[1])]=$value;}
+        }$flush();
+
+        $targets=[];
+        foreach(array_slice($fieldRows,0,300) as $fields){$name=(string)($fields['name']??'');$flag=(string)($fields['flag']??'');$fqbn=(string)($fields['fqbn']??$fields['fbqn']??'');
+            if($name!==''&&preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/',$flag)&&self::validEsp32Fqbn($fqbn)){$target=['id'=>'arduino:'.strtolower($flag),'name'=>substr($name,0,120),'type'=>'arduino','fqbn'=>$fqbn,'flag'=>$flag,'build_flags'=>'-D'.$flag,'source'=>'workflow_metadata','evidence'=>$path];if(preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/',(string)($fields['idf_ver']??'')))$target['core_version']=$fields['idf_ver'];if(preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/',(string)($fields['nimble_ver']??'')))$target['nimble_version']=$fields['nimble_ver'];if(preg_match('/^[A-Za-z0-9_.-]+\.h$/',(string)($fields['tft_file']??'')))$target['tft_setup']=$fields['tft_file'];$targets[]=$target;continue;}
+            $chip=strtolower((string)($fields['idf_target']??''));$config=(string)($fields['sdkconfig_file']??'');if($name!==''&&preg_match('/^esp32(?:s2|s3|c3|c5|c6)?$/',$chip)&&self::safeConfigPath($config))$targets[]=['id'=>'esp-idf:'.substr(hash('sha256',$config),0,16),'name'=>substr($name,0,120),'type'=>'esp-idf','idf_target'=>$chip,'config_path'=>$config,'source'=>'workflow_metadata','evidence'=>$path];
+        }return $targets;
+    }
+
+    private static function yamlScalar(string $value): string
+    {
+        $value=trim($value);if(strlen($value)>1000)return '';
+        if((str_starts_with($value,'"')&&str_ends_with($value,'"'))||(str_starts_with($value,"'")&&str_ends_with($value,"'")))$value=substr($value,1,-1);
+        return trim($value);
     }
 
     private static function validEsp32Fqbn(string $fqbn): bool

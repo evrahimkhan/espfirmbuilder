@@ -17,6 +17,25 @@ foreach($cases as $input=>$expected){
 $matrix=new ReflectionMethod(TargetAnalyzer::class,'parseWorkflowMatrix');$matrix->setAccessible(true);
 $rows=$matrix->invoke(null,"strategy:\n  matrix:\n    include:\n      - { fqbn: 'esp32:esp32:d32:PartitionScheme=min_spiffs', flag: 'MARAUDER_V4', name: 'Marauder V4' }\n",'.github/workflows/build.yml');
 if(count($rows)!==1||($rows[0]['build_flags']??'')!=='-DMARAUDER_V4'||($rows[0]['evidence']??'')!=='.github/workflows/build.yml'){fwrite(STDERR,"Order-independent workflow matrix parsing failed.\n");exit(1);}
+$blockYaml=<<<'YAML'
+strategy:
+  matrix:
+    include:
+      - &base
+        fqbn: esp32:esp32:esp32s3:PSRAM=enabled,PartitionScheme=min_spiffs
+        idf_ver: 3.2.1
+        flag: MARAUDER_S3
+        name: Marauder S3
+      - <<: *base
+        flag: MARAUDER_S3_ALT
+        name: "Marauder S3 Alternate"
+      - name: IDF C6
+        idf_target: esp32c6
+        sdkconfig_file: configs/sdkconfig.c6
+YAML;
+$blockRows=$matrix->invoke(null,$blockYaml,'.github/workflows/block.yml');
+$byName=[];foreach($blockRows as $row)$byName[$row['name']]=$row;
+if(count($byName)!==3||($byName['Marauder S3 Alternate']['fqbn']??'')!=='esp32:esp32:esp32s3:PSRAM=enabled,PartitionScheme=min_spiffs'||($byName['IDF C6']['idf_target']??'')!=='esp32c6'){fwrite(STDERR,"Block matrix or YAML anchor parsing failed: ".json_encode($blockRows)."\n");exit(1);}
 $merge=new ReflectionMethod(TargetAnalyzer::class,'mergeTargets');$merge->setAccessible(true);
 $merged=$merge->invoke(null,[['id'=>'MARAUDER_V4','name'=>'Config','type'=>'arduino_define','define'=>'MARAUDER_V4','source'=>'config'],['id'=>'MARAUDER_V4','name'=>'Workflow','type'=>'arduino','flag'=>'MARAUDER_V4','source'=>'workflow_metadata']]);
 if(count($merged)!==1||$merged[0]['name']!=='Workflow'){fwrite(STDERR,"Target provenance merge failed.\n");exit(1);}
