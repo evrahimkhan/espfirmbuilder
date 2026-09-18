@@ -50,6 +50,8 @@ jobs:
         run: php tests/WorkflowSafetyTest.php
       - name: Workflow generation regression tests
         run: php tests/WorkflowGenerationTest.php
+      - name: Artifact provenance regression tests
+        run: php tests/ArtifactProvenanceTest.php
       - name: JavaScript dependencies and formatting
         run: |
           npm ci --ignore-scripts

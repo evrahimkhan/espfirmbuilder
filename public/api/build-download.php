@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
+require __DIR__ . '/../../src/ArtifactProvenance.php';
 function archive_safety_error(string $path,int $maxEntryBytes=104857600): ?string {
  $zip=new ZipArchive();if($zip->open($path)!==true)return 'Downloaded content is not a readable ZIP archive.';
  $total=0;if($zip->numFiles>2000){$zip->close();return 'Archive contains too many entries.';}
@@ -73,6 +74,15 @@ if($kind==='artifact'&&class_exists('ZipArchive')){
   }
   $zip->close();
  }
+}
+if($kind==='artifact'){
+ $signed=new ZipArchive();if($signed->open($outputPath)!==true)json_response(['error'=>'Artifact provenance could not be applied.'],503);
+ $manifestName=null;for($index=0;$index<$signed->numFiles;$index++){if(basename((string)$signed->getNameIndex($index))==='espforge-manifest.json'){$manifestName=(string)$signed->getNameIndex($index);break;}}
+ if($manifestName===null){$signed->close();json_response(['error'=>'Artifact has no ESPForge manifest and cannot be authenticated.'],422);}
+ $manifest=json_decode((string)$signed->getFromName($manifestName),true);if(!is_array($manifest)||($manifest['version']??null)!==1){$signed->close();json_response(['error'=>'Artifact manifest is invalid.'],422);}
+ if(!empty($build['source_commit_sha'])&&!hash_equals(strtolower((string)$build['source_commit_sha']),strtolower((string)($manifest['commit']??'')))){$signed->close();json_response(['error'=>'Artifact commit does not match the immutable build record.'],409);}
+ $manifest=ArtifactProvenance::sign($manifest,(string)$config['security']['artifact_signing_key']);$signed->addFromString($manifestName,json_encode($manifest,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n");$signed->close();
+ $signedError=archive_safety_error($outputPath,$maxBytes);if($signedError!==null)json_response(['error'=>$signedError],422);
 }
 $filename=preg_replace('/[^A-Za-z0-9_.-]/','_',$filename)?:'espforge-download.zip';$size=filesize($outputPath);audit_event('build.download_started',['build_id'=>$id,'kind'=>$kind,'size'=>$size]);operational_metric('build.download',(int)round((microtime(true)-$downloadStarted)*1000),'success',['kind'=>$kind,'size'=>$size]);
 header('Content-Type: application/zip');header('Content-Disposition: attachment; filename="'.$filename.'"');header('Content-Length: '.$size);header('Cache-Control: private, no-store');header('X-Content-Type-Options: nosniff');

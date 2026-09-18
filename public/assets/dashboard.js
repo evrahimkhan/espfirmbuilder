@@ -859,8 +859,14 @@ $("#flash-manifest").onchange = async (e) => {
       )
         throw Error("Manifest contains an invalid firmware entry.");
     }
+    const provenance = await api("api/flashes.php", {
+      method: "POST",
+      body: JSON.stringify({ action: "verify_manifest", manifest: parsed }),
+    });
+    if (!provenance.verified)
+      throw Error("Artifact publisher signature could not be verified.");
     flashManifest = parsed;
-    log.textContent = `Hash manifest loaded for ${parsed.chip} at commit ${String(parsed.commit || "unknown").slice(0, 12)}. Choose its firmware binary.`;
+    log.textContent = `Signed manifest verified for ${parsed.chip} at commit ${String(parsed.commit || "unknown").slice(0, 12)}. Choose its firmware binary.`;
   } catch (error) {
     e.target.value = "";
     log.textContent = "Manifest rejected: " + error.message;

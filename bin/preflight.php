@@ -6,6 +6,9 @@ require __DIR__.'/../src/bootstrap.php';
 $failures=[];$warnings=[];
 foreach(['curl','openssl','pdo_mysql','json'] as $extension) if(!extension_loaded($extension)) $failures[]="Missing PHP extension: {$extension}";
 if(!class_exists('ZipArchive')) $failures[]='PHP zip extension is required for secure artifact validation.';
+if(!function_exists('sodium_crypto_sign_detached')) $failures[]='PHP sodium extension is required for artifact provenance signatures.';
+if(strlen((string)($config['security']['artifact_signing_key']??''))<32||str_starts_with((string)($config['security']['artifact_signing_key']??''),'replace-with-')) $failures[]='ARTIFACT_SIGNING_KEY must contain at least 32 random bytes.';
+if(hash_equals((string)($config['security']['encryption_key']??''),(string)($config['security']['artifact_signing_key']??''))) $failures[]='ARTIFACT_SIGNING_KEY must be distinct from APP_KEY.';
 if(!is_dir(sys_get_temp_dir())||!is_writable(sys_get_temp_dir())) $failures[]='PHP temporary directory is not writable.';
 if(!filter_var((string)($config['mail']['from']??''),FILTER_VALIDATE_EMAIL)) $failures[]='MAIL_FROM/mail.from is not a valid email address.';
 if(($config['app']['env']??'')!=='production') $warnings[]='APP_ENV is not production.';
@@ -25,7 +28,7 @@ try{
         'rate_limits'=>['rate_key','request_count','reset_at'],
         'operational_metrics'=>['metric_name','duration_ms','outcome','metadata_json','created_at'],
         'analysis_jobs'=>['repo_id','source_commit_sha','analyzer_version','status','attempts','result_encrypted','available_at'],
-        'build_plans'=>['plan_uuid','repo_id','source_commit_sha','target_id','target_config_json','plan_sha256','status','approved_by','approved_at'],
+        'build_plans'=>['plan_uuid','repo_id','source_commit_sha','target_id','target_config_json','workflow_encrypted','workflow_sha256','materialized_at','plan_sha256','status','approved_by','approved_at'],
         'github_webhook_deliveries'=>['delivery_id','event_name','status','created_at'],
     ];
     foreach($required as $table=>$columns){

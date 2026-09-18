@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export APP_ENV=testing APP_URL=http://localhost APP_KEY=test-only-key-that-is-at-least-thirty-two-bytes
+export APP_ENV=testing APP_URL=http://localhost APP_KEY=test-only-key-that-is-at-least-thirty-two-bytes ARTIFACT_SIGNING_KEY=test-only-distinct-signing-key-at-least-32-bytes
 export DB_DSN='mysql:host=127.0.0.1;port=3306;dbname=espforge;charset=utf8mb4' DB_USER=root DB_PASSWORD=root
 for attempt in {1..30}; do mysqladmin ping -h127.0.0.1 -uroot -proot --silent && break; sleep 2; done
 mysql -h127.0.0.1 -uroot -proot -e 'DROP DATABASE IF EXISTS espforge; CREATE DATABASE espforge CHARACTER SET utf8mb4;'

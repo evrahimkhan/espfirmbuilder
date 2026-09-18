@@ -114,44 +114,9 @@ try {
  $q=db()->prepare("SELECT * FROM build_plans WHERE repo_id=? AND source_commit_sha=? AND analyzer_version=? AND target_id=? AND status IN ('ready','approved','dispatched') LIMIT 1");$q->execute([$repo,$commitSha,$analysisVersion,$target['id']]);$plan=$q->fetch();if(!$plan)json_response(['error'=>'The selected immutable build plan is unavailable or superseded. Analyze targets again.','code'=>'plan_not_ready'],409);
  $target=json_decode((string)$plan['target_config_json'],true);if(!is_array($target))json_response(['error'=>'Stored build plan is invalid.'],500);db()->prepare("UPDATE build_plans SET status='approved',approved_by=?,approved_at=NOW() WHERE id=? AND status='ready'")->execute([$user['id'],$plan['id']]);
  $targetConfigJson=json_encode($target,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);if(!is_string($targetConfigJson)||strlen($targetConfigJson)>65535)json_response(['error'=>'The selected hardware plan is too large.'],422);$configDigest=hash('sha256',$targetConfigJson);
- $buildUuid=uuid_v4(); $inputs=['espforge_build_uuid'=>$buildUuid];
+ $workflow=decrypt_secret($plan['workflow_encrypted']??null);if(!is_string($workflow)||$workflow===''||!preg_match('/^[a-f0-9]{64}$/',(string)($plan['workflow_sha256']??''))||!hash_equals((string)$plan['workflow_sha256'],hash('sha256',$workflow)))json_response(['error'=>'The worker-materialized workflow is unavailable or failed its digest check. Analyze targets again.','code'=>'plan_not_ready'],409);
  $targetFramework=in_array($target['type'],['arduino','arduino_define'],true)?'arduino':($target['type']==='esp-idf'?'esp-idf':$analysis['framework']);
- if($target['type']==='workflow_matrix'){
-     $original=$github->file($repository['full_name'],$target['workflow_path'],$repository['default_branch']);
-     if(!$original) throw new RuntimeException('The repository hardware workflow could not be read.',404);
-     $workflow=TargetAnalyzer::filterMatrix($original,$target['flag'],$target['name'],$target['matrix_field']??'flag');
-     if(str_contains($original,'create_release:')) $inputs['create_release']='false';
- } else {
-     $source=$targetFramework==='arduino'?$github->sourceBundle($repository['full_name'],$repository['default_branch'],$entries):'';$aiLibraries=[];
-     if($targetFramework==='arduino'&&$key&&in_array($provider,['google','openrouter'],true))try{$libraryCacheKey=$repository['full_name'].':'.$commitSha.':libraries-v2:'.(string)$target['id'].':'.$provider.':'.(string)($record['ai_key_fingerprint']??'');$cachedLibraries=analysis_cache_get('libraries',$libraryCacheKey,86400);if(is_array($cachedLibraries))$aiLibraries=$cachedLibraries['libraries']??[];else{$aiLibraries=(new AITargetAnalyzer($provider,$key,AppPolicy::aiModel($config,$provider)))->discoverLibraries($source,$target);analysis_cache_set('libraries',$libraryCacheKey,['libraries'=>$aiLibraries]);}audit_event('build.ai_libraries_analyzed',['repository'=>$repository['full_name'],'count'=>count($aiLibraries),'cached'=>is_array($cachedLibraries)]);}catch(Throwable $aiError){error_log('ESPForge AI library analysis fallback: '.$aiError->getMessage());}
-     $workflow=WorkflowEngine::workflow($targetFramework,$paths,$source,$aiLibraries);
-     if($targetFramework==='arduino'){$compatibility=WorkflowEngine::sourceCompatibilityStep($source);if($compatibility!=='')$workflow=str_replace('      - name: Compile firmware',$compatibility.'      - name: Compile firmware',$workflow);}
-     if($targetFramework==='arduino'&&!empty($target['core_version']))$workflow=preg_replace('/esp32:esp32@[0-9]+\.[0-9]+\.[0-9]+/','esp32:esp32@'.$target['core_version'],$workflow)??$workflow;
-     if($targetFramework==='arduino'&&!empty($target['nimble_version']))$workflow=preg_replace('/NimBLE-Arduino@[0-9]+\.[0-9]+\.[0-9]+/','NimBLE-Arduino@'.$target['nimble_version'],$workflow)??$workflow;
-     if($targetFramework==='arduino'&&!empty($target['tft_setup'])){$setup=escapeshellarg((string)$target['tft_setup']);$tftStep="      - name: Configure display for selected hardware\n        run: cp {$setup} \"\$HOME/Arduino/libraries/TFT_eSPI/User_Setup.h\"\n";$workflow=str_replace('      - name: Compile firmware',$tftStep.'      - name: Compile firmware',$workflow);}
-     if(in_array($target['type'],['platformio','platformio_disabled'],true)) $workflow=str_replace('run: pio run','run: pio run -e '.escapeshellarg($target['environment']),$workflow);
-     if(in_array($target['type'],['arduino','arduino_define'],true)&&!empty($target['fqbn'])){
-         $buildFlags=(string)($target['build_flags']??'');
-         $compatibleFqbn=WorkflowEngine::compatibleFqbn((string)$target['fqbn'],$buildFlags,$source);
-         $replacement='--fqbn "'.$compatibleFqbn.'"';
-         if($buildFlags!=='') $replacement.=' --build-property compiler.cpp.extra_flags="'.$buildFlags.'"';
-         $workflow=preg_replace('/--fqbn "[^"]+"/',$replacement,$workflow,1)??$workflow;
-         $boardCheck="      - name: Validate selected Arduino board configuration\n        run: arduino-cli board details --fqbn \"{$compatibleFqbn}\" >/dev/null\n";
-         $workflow=str_replace('      - name: Compile firmware',$boardCheck.'      - name: Compile firmware',$workflow);
-     }
-     $step=TargetAnalyzer::configurationStep($target,$targets);
-     if($step!==''){
-         $marker=str_starts_with($target['type'],'platformio')?'      - name: Build firmware':(($target['type']??'')==='esp-idf'?'      - uses: espressif/esp-idf-ci-action@':'      - name: Compile firmware');
-         $workflow=str_replace($marker,$step.$marker,$workflow);
-     }
-     if($target['type']==='esp-idf'&&!empty($target['idf_target'])) $workflow=preg_replace('/target:\s*esp32\b/','target: '.$target['idf_target'],$workflow,1)??$workflow;
-     $chip=(string)($target['idf_target']??'');
-     if($chip===''&&preg_match('/^esp32:esp32:([a-z0-9]+)/i',(string)($target['fqbn']??''),$chipMatch)){$board=strtolower($chipMatch[1]);$chip=in_array($board,['esp32s2','esp32s3','esp32c3','esp32c5','esp32c6'],true)?$board:'esp32';}
-     if($chip===''&&preg_match('/esp32(?:s2|s3|c3|c5|c6)?/i',(string)($target['id']??''),$chipMatch)) $chip=strtolower($chipMatch[0]);
-     if(!in_array($chip,['esp32','esp32s2','esp32s3','esp32c3','esp32c5','esp32c6'],true))$chip='esp32';
-     $uploadMarker='      - uses: actions/upload-artifact@';
-     $workflow=str_replace($uploadMarker,WorkflowEngine::artifactNamingStep((string)$target['name']).WorkflowEngine::manifestStep($targetFramework,$chip,$configDigest,$analysisVersion).$uploadMarker,$workflow);
- }
+ $buildUuid=uuid_v4();$inputs=['espforge_build_uuid'=>$buildUuid];if(($target['type']??'')==='workflow_matrix'&&str_contains($workflow,'create_release:'))$inputs['create_release']='false';
  $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name'].' [skip ci]');
  $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$targetFramework,$workflow,'workflow_ready',$repo]);
  $workflowFile='espforge-build.yml'; $buildMessage='Building selected model: '.$target['name'];
