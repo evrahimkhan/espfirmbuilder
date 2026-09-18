@@ -49,7 +49,7 @@ test("mobile dashboard exposes navigation, logout, and Web Serial guidance", asy
   await mockDashboard(page);
   await page.goto("/dashboard.html#settings");
   await expect(page.locator("#mobile-logout")).toBeVisible();
-  await page.locator('[data-tab="flash"]').last().click();
+  await page.locator('[data-tab="flash"]:visible').click();
   await expect(page.locator("#serial-support")).toContainText(
     /Web Serial|browser/i,
   );
