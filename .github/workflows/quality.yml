@@ -44,9 +44,16 @@ jobs:
         run: php tests/WorkflowSafetyTest.php
       - name: Workflow generation regression tests
         run: php tests/WorkflowGenerationTest.php
-      - name: JavaScript syntax
+      - name: JavaScript dependencies and formatting
         run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high
+          npm run format:check
           node --check public/assets/app.js
           node --check public/assets/dashboard.js
+      - name: Browser end-to-end tests
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
       - name: MariaDB migration integration
         run: bash tests/MigrationIntegrationTest.sh
