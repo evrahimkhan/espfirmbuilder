@@ -25,7 +25,7 @@ expect_status authenticated-session 200 "$status" "$session_body"
 csrf="$(php -r '$j=json_decode(file_get_contents($argv[1]),true);if(!is_array($j)||empty($j["user"]["id"])||!preg_match("/^[a-f0-9]{48}$/",$j["csrf"]??""))exit(2);echo $j["csrf"];' "$session_body")"
 status="$(curl "${curl_common[@]}" -b "$cookies" -H "X-CSRF-Token: $csrf" -o "$protected_body" -w '%{http_code}' "$base/api/projects.php")"
 expect_status projects 200 "$status" "$protected_body"
-php -r '$j=json_decode(file_get_contents($argv[1]),true);if(!is_array($j)||!array_key_exists("repositories",$j))exit(2);' "$protected_body"
+php -r '$j=json_decode(file_get_contents($argv[1]),true);if(!is_array($j)||!array_key_exists("projects",$j)||!is_array($j["projects"]))exit(2);' "$protected_body"
 
 # Logout both verifies the mutating CSRF boundary and leaves no live session.
 status="$(curl "${curl_common[@]}" -b "$cookies" -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" --data-binary '{}' -o /dev/null -w '%{http_code}' "$base/api/auth.php?action=logout")"
