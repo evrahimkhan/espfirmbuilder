@@ -35,10 +35,7 @@ test("landing authentication dialog is keyboard accessible and dismissible", asy
   page,
 }) => {
   await page.goto("/index.html");
-  await page
-    .getByRole("button", { name: /sign in/i })
-    .first()
-    .click();
+  await page.locator("[data-open-auth]:visible").first().click();
   const dialog = page.locator("#auth");
   await expect(dialog).toBeVisible();
   await page.locator("#auth .close").click();
@@ -50,8 +47,9 @@ test("mobile dashboard exposes navigation, logout, and Web Serial guidance", asy
 }, testInfo) => {
   test.skip(!testInfo.project.name.includes("android"));
   await mockDashboard(page);
-  await page.goto("/dashboard.html#flash");
+  await page.goto("/dashboard.html#settings");
   await expect(page.locator("#mobile-logout")).toBeVisible();
+  await page.locator('[data-tab="flash"]').last().click();
   await expect(page.locator("#serial-support")).toContainText(
     /Web Serial|browser/i,
   );
