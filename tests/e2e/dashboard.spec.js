@@ -78,3 +78,50 @@ test("OAuth restoration error appears once per tab and dialog closes outside", a
   );
   await expect(dialog).toBeHidden();
 });
+
+test("AI analysis terminal can be minimized and reopened while work continues", async ({
+  page,
+}) => {
+  await mockDashboard(page);
+  let polls = 0;
+  await page.route("**/api/targets.php**", async (route) => {
+    polls++;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        polls < 2
+          ? { status: "analyzing", retry_after: 1, commit_sha: "a".repeat(40) }
+          : {
+              status: "ready",
+              targets: [
+                {
+                  id: "esp32",
+                  name: "ESP32",
+                  type: "arduino",
+                  fqbn: "esp32:esp32:esp32",
+                },
+              ],
+            },
+      ),
+    });
+  });
+  await page.goto("/dashboard.html#repos");
+  await page.evaluate(() => {
+    void window.build(7);
+  });
+  const terminal = page.locator("#analysis-dialog");
+  await expect(terminal).toBeVisible();
+  await expect(page.locator("#analysis-terminal")).toContainText(
+    "Revision aaaaaaaaaaaa locked",
+  );
+  await page.locator("#analysis-dialog [data-analysis-close]").last().click();
+  await expect(terminal).toBeHidden();
+  const launcher = page.locator("#analysis-terminal-launcher");
+  await expect(launcher).toBeVisible();
+  await launcher.click();
+  await expect(terminal).toBeVisible();
+  await expect(page.locator("#analysis-dialog-status")).toContainText(
+    /running|complete/i,
+  );
+});

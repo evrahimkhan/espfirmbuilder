@@ -600,6 +600,47 @@ $("#repo-form").onsubmit = async (e) => {
     button.textContent = "Connect repository";
   }
 };
+const analysisDialog = $("#analysis-dialog"),
+  analysisTerminal = $("#analysis-terminal"),
+  analysisLauncher = $("#analysis-terminal-launcher"),
+  analysisStatus = $("#analysis-dialog-status");
+let analysisRunning = false;
+function analysisLine(message, state = "info") {
+  const time = new Date().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const line = document.createElement("span");
+  if (state === "ok") line.className = "analysis-ok";
+  line.textContent = `[${time}] ${message}\n`;
+  analysisTerminal.append(line);
+  analysisTerminal.scrollTop = analysisTerminal.scrollHeight;
+}
+function openAnalysisTerminal(reset = false) {
+  if (reset) {
+    analysisTerminal.textContent = "";
+    analysisStatus.textContent = "AI and deterministic checks are running…";
+  }
+  analysisLauncher.hidden = false;
+  analysisLauncher.classList.toggle("live", analysisRunning);
+  if (!analysisDialog.open) analysisDialog.showModal();
+}
+function minimizeAnalysisTerminal() {
+  if (analysisDialog.open) analysisDialog.close();
+  analysisLauncher.hidden = !analysisRunning && !analysisTerminal.textContent;
+}
+analysisLauncher.onclick = () => openAnalysisTerminal();
+analysisDialog
+  .querySelectorAll("[data-analysis-close]")
+  .forEach((button) => (button.onclick = minimizeAnalysisTerminal));
+analysisDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  minimizeAnalysisTerminal();
+});
+analysisDialog.addEventListener("click", (event) => {
+  if (event.target === analysisDialog) minimizeAnalysisTerminal();
+});
 window.build = async (id) => {
   const triggers = [
       ...document.querySelectorAll(
@@ -611,8 +652,19 @@ window.build = async (id) => {
     button.disabled = true;
     button.textContent = "Finding targets…";
   });
+  analysisRunning = true;
+  openAnalysisTerminal(true);
+  analysisLine(
+    "Build request received. Resolving the immutable repository revision…",
+  );
   try {
     let result = await api(`api/targets.php?repo_id=${id}&retry=1`);
+    analysisLine(
+      result.commit_sha
+        ? `Revision ${String(result.commit_sha).slice(0, 12)} locked for analysis.`
+        : "Repository revision resolved.",
+      "ok",
+    );
     for (
       let attempt = 0;
       result.status === "analyzing" && attempt < 45;
@@ -621,6 +673,14 @@ window.build = async (id) => {
       triggers.forEach(
         (button) => (button.textContent = "AI analysis running…"),
       );
+      if (attempt === 0)
+        analysisLine(
+          "Analysis queued. AI is reviewing project structure and hardware evidence…",
+        );
+      else if (attempt % 5 === 0)
+        analysisLine(
+          `Worker still active. Validating targets and preparing immutable workflows (${attempt + 1})…`,
+        );
       await new Promise((resolve) =>
         setTimeout(
           resolve,
@@ -634,6 +694,14 @@ window.build = async (id) => {
     const targets = result.targets || [];
     if (!targets.length)
       throw Error("No verified ESP hardware targets were detected.");
+    analysisRunning = false;
+    analysisLauncher.classList.remove("live");
+    analysisStatus.textContent = "Analysis complete";
+    analysisLine(
+      `${targets.length} verified hardware target${targets.length === 1 ? "" : "s"} ready to build.`,
+      "ok",
+    );
+    minimizeAnalysisTerminal();
     if (targets.length === 1) {
       const selected = targets[0];
       if (
@@ -674,8 +742,15 @@ window.build = async (id) => {
     );
     dialog.showModal();
   } catch (x) {
+    analysisRunning = false;
+    analysisLauncher.classList.remove("live");
+    analysisStatus.textContent = "Analysis stopped";
+    analysisLine(`Stopped: ${x.message}`);
+    minimizeAnalysisTerminal();
     await notify(x.message, "Build unavailable");
   } finally {
+    analysisRunning = false;
+    analysisLauncher.classList.remove("live");
     triggers.forEach((button, index) => {
       button.disabled = false;
       button.textContent = labels[index];
