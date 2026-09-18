@@ -5,7 +5,7 @@ declare(strict_types=1);
 final class AppPolicy
 {
     public const TARGET_SCHEMA_VERSION = '1.0';
-    public const ANALYZER_VERSION = 'targets-v5';
+    public const ANALYZER_VERSION = 'targets-v6';
     public const PROMPT_VERSION = 'target-prompt-v2';
     public const LIBRARY_PROMPT_VERSION = 'library-prompt-v2';
     public const WORKFLOW_POLICY_VERSION = 'workflow-v3';

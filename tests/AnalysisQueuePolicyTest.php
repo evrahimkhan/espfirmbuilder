@@ -5,6 +5,6 @@ foreach(['queued','processing','completed','failed','FOR UPDATE SKIP LOCKED','re
 foreach(['ready','approved','superseded','dispatched','approved_by','approved_at','plan_sha256'] as $needle)if(!str_contains($builds.$worker.$migration,$needle)){fwrite(STDERR,"Build-plan lifecycle is missing {$needle}.\n");exit(1);}
 if(str_contains($targets,'TargetAnalyzer::discover')||str_contains($targets,'AITargetAnalyzer')){fwrite(STDERR,"Target HTTP requests must not execute source or AI analysis.\n");exit(1);}
 if(!str_contains($builds,"status='completed'")||!str_contains($builds,'result_encrypted')){fwrite(STDERR,"Dispatch must consume completed immutable analysis.\n");exit(1);}
-foreach(['workflow_encrypted','workflow_sha256','materialized_at','BuildMaterializer::materialize'] as $needle)if(!str_contains($worker.$migration,$needle)){fwrite(STDERR,"Worker materialization is missing {$needle}.\n");exit(1);}
+foreach(['workflow_encrypted','workflow_sha256','materialized_at','BuildMaterializer::materialize','readyTargets','targetFailures','No discovered hardware target could be safely materialized'] as $needle)if(!str_contains($worker.$migration,$needle)){fwrite(STDERR,"Worker materialization is missing {$needle}.\n");exit(1);}
 if(str_contains($builds,'WorkflowEngine::workflow(')||str_contains($builds,'sourceBundle(')){fwrite(STDERR,"Dispatch request still materializes source or workflows.\n");exit(1);}
 echo "Analysis queue and build-plan policy tests passed.\n";

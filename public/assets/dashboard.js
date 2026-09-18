@@ -612,7 +612,7 @@ window.build = async (id) => {
     button.textContent = "Finding targets…";
   });
   try {
-    let result = await api(`api/targets.php?repo_id=${id}`);
+    let result = await api(`api/targets.php?repo_id=${id}&retry=1`);
     for (
       let attempt = 0;
       result.status === "analyzing" && attempt < 45;
