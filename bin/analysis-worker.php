@@ -6,6 +6,7 @@ require __DIR__.'/../src/AppPolicy.php';
 require __DIR__.'/../src/GitHubClient.php';
 require __DIR__.'/../src/TargetAnalyzer.php';
 require __DIR__.'/../src/AITargetAnalyzer.php';
+require __DIR__.'/../src/OfficialMetadata.php';
 
 $limit=max(1,min(10,(int)($argv[1]??3)));$processed=0;
 while($processed<$limit){
@@ -20,6 +21,7 @@ while($processed<$limit){
         $provider=(string)($job['ai_provider']??'');$key=decrypt_secret($job['ai_api_key']??null);
         $fallback=$key&&in_array($provider,['google','openrouter'],true)?fn()=>(new AITargetAnalyzer($provider,$key,AppPolicy::aiModel($config,$provider)))->discover($github,$job['full_name'],$job['source_commit_sha'],$paths):null;
         $targets=TargetAnalyzer::discover($github,$job['full_name'],$job['source_commit_sha'],$paths,$fallback);
+        $official=OfficialMetadata::pinned();foreach($targets as &$target){$official->validateTarget($target);$target['official_metadata_sha256']=$official->digest();}unset($target);
         $payload=json_encode(['targets'=>$targets,'ai'=>(bool)$key,'time'=>time()],JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);if(strlen($payload)>2*1024*1024)throw new RuntimeException('Analysis result exceeds the storage limit.');
         $pdo->beginTransaction();
         $pdo->prepare("UPDATE build_plans SET status='superseded' WHERE repo_id=? AND source_commit_sha<>? AND status IN ('ready','approved')")->execute([$job['repo_id'],$job['source_commit_sha']]);

@@ -1,0 +1,29 @@
+name: ESPForge authenticated production monitor
+
+"on":
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: espforge-production-monitor
+  cancel-in-progress: true
+
+jobs:
+  authenticated-production:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: production-monitor
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Exercise authenticated production boundaries
+        env:
+          ESPFORGE_URL: https://espforge.alwaysdata.net
+          ESPFORGE_SYNTHETIC_EMAIL: ${{ secrets.ESPFORGE_SYNTHETIC_EMAIL }}
+          ESPFORGE_SYNTHETIC_PASSWORD: ${{ secrets.ESPFORGE_SYNTHETIC_PASSWORD }}
+        run: bash bin/synthetic-monitor.sh
