@@ -8,7 +8,7 @@
     "arduino_libraries": "https://downloads.arduino.cc/libraries/library_index.json.gz"
   },
   "arduino_esp32": {
-    "versions": ["2.0.10", "3.2.1"],
+    "versions": ["2.0.10", "2.0.11", "3.2.1", "3.3.4"],
     "boards": ["esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c5", "esp32c6"]
   },
   "platformio": {"versions": ["6.1.19"]},
