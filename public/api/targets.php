@@ -12,14 +12,15 @@ try{
     $github=new GitHubClient(github_token((int)$user['id']));$tree=$github->tree($repository['full_name'],$repository['default_branch']);$commitSha=strtolower((string)($tree['sha']??''));
     if(!preg_match('/^[a-f0-9]{40}$/',$commitSha))json_response(['error'=>'GitHub did not return an immutable source revision.'],502);
     $q=db()->prepare('SELECT * FROM analysis_jobs WHERE repo_id=? AND source_commit_sha=? AND analyzer_version=?');$q->execute([$repo,$commitSha,AppPolicy::ANALYZER_VERSION]);$job=$q->fetch();
+    $progress=[];if($job&&is_string($job['progress_encrypted']??null)){$progressJson=decrypt_secret($job['progress_encrypted']);$decodedProgress=is_string($progressJson)?json_decode($progressJson,true):null;if(is_array($decodedProgress))$progress=array_slice($decodedProgress,-80);}
     if(!$job){
         db()->prepare("INSERT INTO analysis_jobs(repo_id,source_commit_sha,analyzer_version,status) VALUES(?,?,?,'queued')")->execute([$repo,$commitSha,AppPolicy::ANALYZER_VERSION]);
         operational_metric('analysis.enqueue',null,'success',['repo_id'=>$repo]);
         json_response(['status'=>'analyzing','retry_after'=>2,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION,'schema_version'=>AppPolicy::TARGET_SCHEMA_VERSION],202);
     }
-    if(in_array($job['status'],['queued','processing'],true))json_response(['status'=>'analyzing','retry_after'=>2,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION,'schema_version'=>AppPolicy::TARGET_SCHEMA_VERSION],202);
+    if(in_array($job['status'],['queued','processing'],true))json_response(['status'=>'analyzing','retry_after'=>2,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION,'schema_version'=>AppPolicy::TARGET_SCHEMA_VERSION,'progress'=>$progress],202);
     if($job['status']==='failed'){
-        if(($_GET['retry']??'')==='1'){$updated=db()->prepare("UPDATE analysis_jobs SET status='queued',attempts=0,error_message=NULL,result_encrypted=NULL,available_at=NOW(),started_at=NULL,completed_at=NULL WHERE id=? AND status='failed'");$updated->execute([$job['id']]);audit_event('analysis.retry_requested',['repo_id'=>$repo,'job_id'=>(int)$job['id']]);json_response(['status'=>'analyzing','retry_after'=>2,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION],202);}
+        if(($_GET['retry']??'')==='1'){$updated=db()->prepare("UPDATE analysis_jobs SET status='queued',attempts=0,error_message=NULL,result_encrypted=NULL,progress_encrypted=NULL,available_at=NOW(),started_at=NULL,completed_at=NULL WHERE id=? AND status='failed'");$updated->execute([$job['id']]);audit_event('analysis.retry_requested',['repo_id'=>$repo,'job_id'=>(int)$job['id']]);json_response(['status'=>'analyzing','retry_after'=>2,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION],202);}
         json_response(['error'=>'Repository analysis failed. Press Build to retry, or synchronize after correcting its GitHub/AI configuration.','code'=>'analysis_failed'],422);
     }
     $json=decrypt_secret($job['result_encrypted']??null);$result=is_string($json)?json_decode($json,true):null;

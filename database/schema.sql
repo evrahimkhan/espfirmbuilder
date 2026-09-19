@@ -69,6 +69,7 @@ CREATE TABLE analysis_jobs (
  status ENUM('queued','processing','completed','failed') NOT NULL DEFAULT 'queued',
  attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
  result_encrypted MEDIUMTEXT NULL,
+ progress_encrypted MEDIUMTEXT NULL,
  error_message VARCHAR(500) NULL,
  available_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
  started_at TIMESTAMP NULL,

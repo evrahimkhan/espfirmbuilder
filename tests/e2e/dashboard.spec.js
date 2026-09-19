@@ -91,7 +91,20 @@ test("AI analysis terminal can be minimized and reopened while work continues", 
       contentType: "application/json",
       body: JSON.stringify(
         polls < 2
-          ? { status: "analyzing", retry_after: 1, commit_sha: "a".repeat(40) }
+          ? {
+              status: "analyzing",
+              retry_after: 1,
+              commit_sha: "a".repeat(40),
+              progress: [
+                {
+                  time: 1,
+                  stage: "ai_request",
+                  message:
+                    "Calling the configured AI model to identify hardware targets.",
+                  details: { provider: "google", model: "gemini-test" },
+                },
+              ],
+            }
           : {
               status: "ready",
               targets: [
@@ -114,6 +127,9 @@ test("AI analysis terminal can be minimized and reopened while work continues", 
   await expect(terminal).toBeVisible();
   await expect(page.locator("#analysis-terminal")).toContainText(
     "Revision aaaaaaaaaaaa locked",
+  );
+  await expect(page.locator("#analysis-terminal")).toContainText(
+    "AI API: google / gemini-test",
   );
   await page.locator("#analysis-dialog [data-analysis-close]").last().click();
   await expect(terminal).toBeHidden();

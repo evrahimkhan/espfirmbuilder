@@ -113,8 +113,12 @@ async function api(url, opt = {}) {
     );
   }
   if (r.status === 401) {
-    location.href = "index.html";
-    throw Error("Please sign in");
+    const error = Error("Your session expired. Please sign in again.");
+    error.code = "auth_required";
+    location.replace(
+      "index.html?auth_message=Your%20session%20expired.%20Please%20sign%20in%20again.",
+    );
+    throw error;
   }
   if (!r.ok) {
     const reference = d.request_id ? ` (reference ${d.request_id})` : "";
@@ -617,6 +621,26 @@ function analysisLine(message, state = "info") {
   analysisTerminal.append(line);
   analysisTerminal.scrollTop = analysisTerminal.scrollHeight;
 }
+function renderAnalysisProgress(events, seen) {
+  for (const event of Array.isArray(events) ? events : []) {
+    const key = `${event.time || 0}:${event.stage || ""}:${event.message || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    analysisLine(
+      event.message || "Analysis updated.",
+      event.stage === "ai_result" ? "ok" : "info",
+    );
+    if (event.stage === "ai_request" && event.details?.model)
+      analysisLine(
+        `AI API: ${event.details.provider} / ${event.details.model}`,
+      );
+    for (const target of event.details?.targets || [])
+      analysisLine(
+        `AI result: ${target.name} · ${target.type} · ${target.source}${target.confidence === null ? "" : ` · confidence ${Math.round(target.confidence * 100)}%`}${target.evidence ? ` · evidence ${target.evidence}` : ""}`,
+        "ok",
+      );
+  }
+}
 function openAnalysisTerminal(reset = false) {
   if (reset) {
     analysisTerminal.textContent = "";
@@ -657,8 +681,10 @@ window.build = async (id) => {
   analysisLine(
     "Build request received. Resolving the immutable repository revision…",
   );
+  const progressSeen = new Set();
   try {
     let result = await api(`api/targets.php?repo_id=${id}&retry=1`);
+    renderAnalysisProgress(result.progress, progressSeen);
     analysisLine(
       result.commit_sha
         ? `Revision ${String(result.commit_sha).slice(0, 12)} locked for analysis.`
@@ -688,6 +714,7 @@ window.build = async (id) => {
         ),
       );
       result = await api(`api/targets.php?repo_id=${id}`);
+      renderAnalysisProgress(result.progress, progressSeen);
     }
     if (result.status === "analyzing")
       throw Error("Analysis is still running. Try again shortly.");
@@ -744,6 +771,10 @@ window.build = async (id) => {
   } catch (x) {
     analysisRunning = false;
     analysisLauncher.classList.remove("live");
+    if (x.code === "auth_required") {
+      minimizeAnalysisTerminal();
+      return;
+    }
     analysisStatus.textContent = "Analysis stopped";
     analysisLine(`Stopped: ${x.message}`);
     minimizeAnalysisTerminal();

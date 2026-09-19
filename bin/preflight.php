@@ -27,7 +27,7 @@ try{
         'flash_events'=>['chip','firmware_size','manifest_verified'],
         'rate_limits'=>['rate_key','request_count','reset_at'],
         'operational_metrics'=>['metric_name','duration_ms','outcome','metadata_json','created_at'],
-        'analysis_jobs'=>['repo_id','source_commit_sha','analyzer_version','status','attempts','result_encrypted','available_at'],
+        'analysis_jobs'=>['repo_id','source_commit_sha','analyzer_version','status','attempts','result_encrypted','progress_encrypted','available_at'],
         'build_plans'=>['plan_uuid','repo_id','source_commit_sha','target_id','target_config_json','workflow_encrypted','workflow_sha256','materialized_at','plan_sha256','status','approved_by','approved_at'],
         'github_webhook_deliveries'=>['delivery_id','event_name','status','created_at'],
     ];

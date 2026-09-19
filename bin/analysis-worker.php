@@ -16,15 +16,19 @@ while($processed<$limit){
     $job=$pdo->query("SELECT j.*,r.user_id,r.full_name,r.default_branch,u.github_token,u.ai_provider,u.ai_api_key,u.ai_key_fingerprint FROM analysis_jobs j JOIN repositories r ON r.id=j.repo_id JOIN users u ON u.id=r.user_id WHERE j.status='queued' AND j.available_at<=NOW() ORDER BY j.id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
     if(!$job){$pdo->commit();break;}
     $pdo->prepare("UPDATE analysis_jobs SET status='processing',attempts=attempts+1,started_at=NOW(),error_message=NULL WHERE id=?")->execute([$job['id']]);$pdo->commit();
-    $started=microtime(true);
+    $started=microtime(true);$progress=[];
+    $report=function(string $stage,string $message,array $details=[])use($pdo,$job,&$progress):void{$progress[]=['time'=>time(),'stage'=>substr($stage,0,40),'message'=>substr($message,0,240),'details'=>$details];$progress=array_slice($progress,-80);$pdo->prepare('UPDATE analysis_jobs SET progress_encrypted=? WHERE id=?')->execute([encrypt_secret(json_encode($progress,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)),$job['id']]);};
     try{
+        $report('repository','Reading the immutable GitHub repository tree.');
         $token=decrypt_secret($job['github_token']??null);if(!$token)throw new RuntimeException('GitHub connection is unavailable.');
-        $github=new GitHubClient($token);$tree=$github->tree($job['full_name'],$job['source_commit_sha']);$paths=array_column($tree['tree']??[],'path');
+        $github=new GitHubClient($token);$tree=$github->tree($job['full_name'],$job['source_commit_sha']);$paths=array_column($tree['tree']??[],'path');$report('repository','Repository evidence loaded.',['files'=>count($paths),'commit'=>substr((string)$job['source_commit_sha'],0,12)]);
         $provider=(string)($job['ai_provider']??'');$key=decrypt_secret($job['ai_api_key']??null);
+        if($key&&in_array($provider,['google','openrouter'],true))$report('ai_request','Calling the configured AI model to identify hardware targets.',['provider'=>$provider,'model'=>AppPolicy::aiModel($config,$provider)]);else $report('ai_request','No AI key is configured; continuing with deterministic repository evidence.');
         $fallback=$key&&in_array($provider,['google','openrouter'],true)?fn()=>(new AITargetAnalyzer($provider,$key,AppPolicy::aiModel($config,$provider)))->discover($github,$job['full_name'],$job['source_commit_sha'],$paths):null;
-        $targets=TargetAnalyzer::discover($github,$job['full_name'],$job['source_commit_sha'],$paths,$fallback);
+        $targets=TargetAnalyzer::discover($github,$job['full_name'],$job['source_commit_sha'],$paths,$fallback);$report('ai_result','AI proposals reconciled with executable repository evidence.',['targets'=>array_map(fn($target)=>['name'=>substr((string)($target['name']??''),0,120),'type'=>(string)($target['type']??''),'source'=>(string)($target['source']??''),'confidence'=>isset($target['confidence'])?(float)$target['confidence']:null,'evidence'=>substr((string)($target['evidence']??$target['config_path']??''),0,200)],array_slice($targets,0,40))]);
         $official=OfficialMetadata::pinned();foreach($targets as &$target){$official->validateTarget($target);$target['official_metadata_sha256']=$official->digest();}unset($target);
         $payload=json_encode(['targets'=>$targets,'ai'=>(bool)$key,'time'=>time()],JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);if(strlen($payload)>2*1024*1024)throw new RuntimeException('Analysis result exceeds the storage limit.');
+        $report('materialization','Validated targets are being converted into immutable build workflows.',['targets'=>count($targets),'metadata_sha256'=>$official->digest()]);
         $pdo->beginTransaction();
         $pdo->prepare("UPDATE build_plans SET status='superseded' WHERE repo_id=? AND source_commit_sha<>? AND status IN ('ready','approved')")->execute([$job['repo_id'],$job['source_commit_sha']]);
         $insert=$pdo->prepare("INSERT INTO build_plans(plan_uuid,repo_id,source_commit_sha,analyzer_version,target_id,target_name,target_config_json,workflow_encrypted,workflow_sha256,materialized_at,plan_sha256,status) VALUES(?,?,?,?,?,?,?,?,?,NOW(),?,'ready') ON DUPLICATE KEY UPDATE target_name=VALUES(target_name),target_config_json=VALUES(target_config_json),workflow_encrypted=VALUES(workflow_encrypted),workflow_sha256=VALUES(workflow_sha256),materialized_at=NOW(),plan_sha256=VALUES(plan_sha256),status=IF(status IN ('dispatched','approved'),status,'ready')");
