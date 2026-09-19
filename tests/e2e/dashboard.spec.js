@@ -103,6 +103,13 @@ test("AI analysis terminal can be minimized and reopened while work continues", 
                     "Calling the configured AI model to identify hardware targets.",
                   details: { provider: "google", model: "gemini-test" },
                 },
+                {
+                  time: 2,
+                  stage: "materialization",
+                  message:
+                    "Validated targets are being converted into immutable build workflows.",
+                  details: { targets: 65 },
+                },
               ],
             }
           : {

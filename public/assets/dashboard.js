@@ -181,9 +181,10 @@ $("#app-dialog").addEventListener("cancel", (event) => {
 const notify = (message, title = "ESPForge") =>
   showDialog(message, {
     title,
-    danger: /failed|failure|error|unable|expired|could not|unexpected/i.test(
-      title + " " + message,
-    ),
+    danger:
+      /failed|failure|error|unable|unavailable|stopped|expired|could not|unexpected/i.test(
+        title + " " + message,
+      ),
   });
 const ask = (message, title = "Please confirm") =>
   showDialog(message, {
@@ -634,7 +635,9 @@ function renderAnalysisProgress(events, seen) {
       analysisLine(
         `AI API: ${event.details.provider} / ${event.details.model}`,
       );
-    for (const target of event.details?.targets || [])
+    for (const target of Array.isArray(event.details?.targets)
+      ? event.details.targets
+      : [])
       analysisLine(
         `AI result: ${target.name} · ${target.type} · ${target.source}${target.confidence === null ? "" : ` · confidence ${Math.round(target.confidence * 100)}%`}${target.evidence ? ` · evidence ${target.evidence}` : ""}`,
         "ok",
