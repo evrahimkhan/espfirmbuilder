@@ -18,7 +18,7 @@ try{
         operational_metric('analysis.enqueue',null,'success',['repo_id'=>$repo]);
         json_response(['status'=>'analyzing','retry_after'=>2,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION,'schema_version'=>AppPolicy::TARGET_SCHEMA_VERSION],202);
     }
-    if(in_array($job['status'],['queued','processing'],true))json_response(['status'=>'analyzing','retry_after'=>2,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION,'schema_version'=>AppPolicy::TARGET_SCHEMA_VERSION,'progress'=>$progress],202);
+    if(in_array($job['status'],['queued','processing'],true))json_response(['status'=>'analyzing','retry_after'=>4,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION,'schema_version'=>AppPolicy::TARGET_SCHEMA_VERSION,'progress'=>$progress],202);
     if($job['status']==='failed'){
         if(($_GET['retry']??'')==='1'){$updated=db()->prepare("UPDATE analysis_jobs SET status='queued',attempts=0,error_message=NULL,result_encrypted=NULL,progress_encrypted=NULL,available_at=NOW(),started_at=NULL,completed_at=NULL WHERE id=? AND status='failed'");$updated->execute([$job['id']]);audit_event('analysis.retry_requested',['repo_id'=>$repo,'job_id'=>(int)$job['id']]);json_response(['status'=>'analyzing','retry_after'=>2,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION],202);}
         json_response(['error'=>'Repository analysis failed. Press Build to retry, or synchronize after correcting its GitHub/AI configuration.','code'=>'analysis_failed'],422);

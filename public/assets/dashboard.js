@@ -98,8 +98,15 @@ async function api(url, opt = {}) {
     "Content-Type": "application/json",
     "X-CSRF-Token": csrf,
   };
-  const r = await fetch(url, opt),
-    raw = await r.text();
+  let r;
+  try {
+    r = await fetch(url, opt);
+  } catch (_) {
+    const error = Error("The network connection was interrupted.");
+    error.code = "network_interrupted";
+    throw error;
+  }
+  const raw = await r.text();
   let d;
   try {
     d = raw ? JSON.parse(raw) : {};
@@ -648,6 +655,20 @@ function renderAnalysisProgress(events, seen) {
       );
   }
 }
+async function requestAnalysis(url) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      return await api(url);
+    } catch (error) {
+      if (error.code !== "network_interrupted" || attempt === 5) throw error;
+      analysisLine(
+        `Connection interrupted. Reconnecting to the analysis worker (${attempt}/5)…`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1500));
+    }
+  }
+  throw Error("Analysis status could not be retrieved.");
+}
 function openAnalysisTerminal(reset = false) {
   if (reset) {
     analysisTerminal.textContent = "";
@@ -690,7 +711,7 @@ window.build = async (id) => {
   );
   const progressSeen = new Set();
   try {
-    let result = await api(`api/targets.php?repo_id=${id}&retry=1`);
+    let result = await requestAnalysis(`api/targets.php?repo_id=${id}&retry=1`);
     renderAnalysisProgress(result.progress, progressSeen);
     analysisLine(
       result.commit_sha
@@ -700,7 +721,7 @@ window.build = async (id) => {
     );
     for (
       let attempt = 0;
-      result.status === "analyzing" && attempt < 180;
+      result.status === "analyzing" && attempt < 90;
       attempt++
     ) {
       triggers.forEach(
@@ -720,7 +741,7 @@ window.build = async (id) => {
           Math.max(1000, Number(result.retry_after || 2) * 1000),
         ),
       );
-      result = await api(`api/targets.php?repo_id=${id}`);
+      result = await requestAnalysis(`api/targets.php?repo_id=${id}`);
       renderAnalysisProgress(result.progress, progressSeen);
     }
     if (result.status === "analyzing") {
@@ -787,6 +808,15 @@ window.build = async (id) => {
     analysisRunning = false;
     analysisLauncher.classList.remove("live");
     if (x.code === "auth_required") {
+      minimizeAnalysisTerminal();
+      return;
+    }
+    if (x.code === "network_interrupted") {
+      analysisStatus.textContent =
+        "Connection interrupted; analysis continues on the server";
+      analysisLine(
+        "Live monitoring paused after repeated connection failures. The server worker continues in the background; press Build to reconnect.",
+      );
       minimizeAnalysisTerminal();
       return;
     }
