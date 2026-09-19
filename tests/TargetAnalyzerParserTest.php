@@ -44,6 +44,9 @@ $primary=$reconcile->invoke(null,[['id'=>'ai-v4','name'=>'AI V4','type'=>'arduin
 if(count($primary)!==1||empty($primary[0]['ai_primary'])||$primary[0]['name']!=='AI V4'||$primary[0]['source']!=='ai_verified'){fwrite(STDERR,"AI-primary deterministic reconciliation failed.\n");exit(1);}
 $unverified=$reconcile->invoke(null,[['id'=>'bad','name'=>'Bad','type'=>'arduino','fqbn'=>'esp32:esp32:d32:PartitionScheme=imaginary','source'=>'ai']],[]);
 if($unverified!==[]){fwrite(STDERR,"Unverified AI FQBN was accepted.\n");exit(1);}
+$matrixYaml="name: Build\n\"on\":\n  workflow_dispatch: {}\njobs:\n  build:\n    strategy:\n      matrix:\n        include:\n          - {name: \"Board\", flag: \"BOARD_ONE\"}\n    steps:\n      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8\n      - run: make\n";
+$filtered=TargetAnalyzer::filterMatrix($matrixYaml,'BOARD_ONE','Board');
+if(!str_contains($filtered,'espforge_source_commit:')||!str_contains($filtered,'ref: ${{ inputs.espforge_source_commit || github.event.client_payload.espforge_source_commit }}')){fwrite(STDERR,"Matrix workflow checkout is not pinned to the immutable source revision.\n");exit(1);}
 $idfStep=TargetAnalyzer::configurationStep(['type'=>'esp-idf','config_path'=>'configs/sdkconfig.s3'],[]);
 if(!str_contains($idfStep,'Apply selected ESP-IDF hardware configuration')||!str_contains($idfStep,'shutil.copyfile')){fwrite(STDERR,"ESP-IDF selected configuration is not applied.\n");exit(1);}
 echo "TargetAnalyzer parser tests passed\n";

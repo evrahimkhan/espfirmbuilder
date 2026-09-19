@@ -184,6 +184,16 @@ final class TargetAnalyzer
             $insertion=$match[0]."\n".$indent."  inputs:\n".$indent."    espforge_build_uuid:\n".$indent."      description: Unique ESPForge build identifier\n".$indent."      required: true\n".$indent."      type: string";
             $yaml=preg_replace('/^\s*workflow_dispatch:\s*$/m',$insertion,$yaml,1)??$yaml;
         }
+        if(!preg_match('/^\s+espforge_source_commit:\s*$/m',$yaml)){
+            $yaml=preg_replace('/^(\s+espforge_build_uuid:\s*\n\s+description:.*\n\s+required:\s*true\s*\n(\s+)type:\s*string\s*)$/m',"$1\n$2espforge_source_commit:\n$2  description: Immutable source revision to compile\n$2  required: true\n$2  type: string",$yaml,1)??$yaml;
+        }
+        $sourceExpression='${{ inputs.espforge_source_commit || github.event.client_payload.espforge_source_commit }}';
+        if(!str_contains($yaml,'inputs.espforge_source_commit')&&!str_contains($yaml,'client_payload.espforge_source_commit'))throw new RuntimeException('The repository workflow could not accept an immutable source revision.',422);
+        if(!preg_match('/^\s+ref:\s*\$\{\{\s*inputs\.espforge_source_commit/m',$yaml)){
+            $checkoutPattern='/^(\s*)- uses:\s*actions\/checkout@([a-f0-9]{40})\s*\n(?:(\1  with:)\s*\n)?/mi';
+            $yaml=preg_replace_callback($checkoutPattern,static function(array $match)use($sourceExpression):string{$indent=$match[1];$base=$indent.'- uses: actions/checkout@'.$match[2]."\n";if(!empty($match[3]))return $base.$match[3]."\n".$indent.'    ref: '.$sourceExpression."\n";return $base.$indent."  with:\n".$indent.'    ref: '.$sourceExpression."\n";},$yaml,1)??$yaml;
+        }
+        if(!str_contains($yaml,'ref: '.$sourceExpression))throw new RuntimeException('The repository workflow checkout could not be pinned to the immutable source revision.',422);
         return $yaml;
     }
 

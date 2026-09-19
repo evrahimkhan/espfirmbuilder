@@ -59,6 +59,13 @@ if (oauthError) {
     queueMicrotask(() => notify(oauthError, "Account connection failed"));
   }
 }
+const downloadError = new URLSearchParams(location.search).get(
+  "download_error",
+);
+if (downloadError) {
+  history.replaceState(null, "", location.pathname + "#builds");
+  queueMicrotask(() => notify(downloadError, "Download unavailable"));
+}
 async function logout(button) {
   button.disabled = true;
   try {
@@ -317,6 +324,7 @@ window.downloadBuild = (id, kind) => {
     build_id: String(id),
     kind,
     csrf,
+    browser: "1",
   })) {
     const input = document.createElement("input");
     input.type = "hidden";

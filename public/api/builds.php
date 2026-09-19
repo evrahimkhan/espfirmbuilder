@@ -116,7 +116,7 @@ try {
  $targetConfigJson=json_encode($target,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);if(!is_string($targetConfigJson)||strlen($targetConfigJson)>65535)json_response(['error'=>'The selected hardware plan is too large.'],422);$configDigest=hash('sha256',$targetConfigJson);
  $workflow=decrypt_secret($plan['workflow_encrypted']??null);if(!is_string($workflow)||$workflow===''||!preg_match('/^[a-f0-9]{64}$/',(string)($plan['workflow_sha256']??''))||!hash_equals((string)$plan['workflow_sha256'],hash('sha256',$workflow)))json_response(['error'=>'The worker-materialized workflow is unavailable or failed its digest check. Analyze targets again.','code'=>'plan_not_ready'],409);
  $targetFramework=in_array($target['type'],['arduino','arduino_define'],true)?'arduino':($target['type']==='esp-idf'?'esp-idf':$analysis['framework']);
- $buildUuid=uuid_v4();$inputs=['espforge_build_uuid'=>$buildUuid];if(($target['type']??'')==='workflow_matrix'&&str_contains($workflow,'create_release:'))$inputs['create_release']='false';
+ $buildUuid=uuid_v4();$inputs=['espforge_build_uuid'=>$buildUuid,'espforge_source_commit'=>$commitSha];if(($target['type']??'')==='workflow_matrix'&&str_contains($workflow,'create_release:'))$inputs['create_release']='false';
  $github->putFile($repository['full_name'],'.github/workflows/espforge-build.yml',$repository['default_branch'],$workflow,'ci: configure ESPForge for '.$target['name'].' [skip ci]');
  $q=db()->prepare('UPDATE repositories SET framework=?,workflow_config=?,status=? WHERE id=?'); $q->execute([$targetFramework,$workflow,'workflow_ready',$repo]);
  $workflowFile='espforge-build.yml'; $buildMessage='Building selected model: '.$target['name'];

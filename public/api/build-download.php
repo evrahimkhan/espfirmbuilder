@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/../../src/bootstrap.php';
 require __DIR__ . '/../../src/ArtifactProvenance.php';
+function download_failure(string $message,int $status): never {if(($_POST['browser']??'')==='1'){header('Location: ../dashboard.html?download_error='.rawurlencode($message).'#builds',true,303);exit;}json_response(['error'=>$message],$status);}
 function archive_safety_error(string $path,int $maxEntryBytes=104857600): ?string {
  $zip=new ZipArchive();if($zip->open($path)!==true)return 'Downloaded content is not a readable ZIP archive.';
  $total=0;if($zip->numFiles>2000){$zip->close();return 'Archive contains too many entries.';}
@@ -80,7 +81,7 @@ if($kind==='artifact'){
  $manifestName=null;for($index=0;$index<$signed->numFiles;$index++){if(basename((string)$signed->getNameIndex($index))==='espforge-manifest.json'){$manifestName=(string)$signed->getNameIndex($index);break;}}
  if($manifestName===null){$signed->close();json_response(['error'=>'Artifact has no ESPForge manifest and cannot be authenticated.'],422);}
  $manifest=json_decode((string)$signed->getFromName($manifestName),true);if(!is_array($manifest)||($manifest['version']??null)!==1){$signed->close();json_response(['error'=>'Artifact manifest is invalid.'],422);}
- if(!empty($build['source_commit_sha'])&&!hash_equals(strtolower((string)$build['source_commit_sha']),strtolower((string)($manifest['commit']??'')))){$signed->close();json_response(['error'=>'Artifact commit does not match the immutable build record.'],409);}
+ if(!empty($build['source_commit_sha'])&&!hash_equals(strtolower((string)$build['source_commit_sha']),strtolower((string)($manifest['commit']??'')))){$signed->close();download_failure('This artifact was built before immutable source checkout was enabled. Rebuild the target, then download the new artifact.',409);}
  $manifest=ArtifactProvenance::sign($manifest,(string)$config['security']['artifact_signing_key']);$signed->addFromString($manifestName,json_encode($manifest,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n");$signed->close();
  $signedError=archive_safety_error($outputPath,$maxBytes);if($signedError!==null)json_response(['error'=>$signedError],422);
 }
