@@ -635,6 +635,10 @@ function renderAnalysisProgress(events, seen) {
       analysisLine(
         `AI API: ${event.details.provider} / ${event.details.model}`,
       );
+    for (const library of Array.isArray(event.details?.libraries)
+      ? event.details.libraries
+      : [])
+      analysisLine(`AI dependency accepted: ${library}`, "ok");
     for (const target of Array.isArray(event.details?.targets)
       ? event.details.targets
       : [])
@@ -696,7 +700,7 @@ window.build = async (id) => {
     );
     for (
       let attempt = 0;
-      result.status === "analyzing" && attempt < 45;
+      result.status === "analyzing" && attempt < 180;
       attempt++
     ) {
       triggers.forEach(
@@ -719,8 +723,16 @@ window.build = async (id) => {
       result = await api(`api/targets.php?repo_id=${id}`);
       renderAnalysisProgress(result.progress, progressSeen);
     }
-    if (result.status === "analyzing")
-      throw Error("Analysis is still running. Try again shortly.");
+    if (result.status === "analyzing") {
+      analysisRunning = false;
+      analysisLauncher.classList.remove("live");
+      analysisStatus.textContent = "Analysis continues in the background";
+      analysisLine(
+        "Browser monitoring paused after six minutes. The server worker is still running; press Build later to resume this view.",
+      );
+      minimizeAnalysisTerminal();
+      return;
+    }
     const targets = result.targets || [];
     if (!targets.length)
       throw Error("No verified ESP hardware targets were detected.");

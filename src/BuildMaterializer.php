@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 final class BuildMaterializer
 {
-    public static function materialize(GitHubClient $github,string $repository,string $commit,array $entries,array $paths,array $target,array $targets,array $aiLibraries=[]): array
+    public static function materialize(GitHubClient $github,string $repository,string $commit,array $entries,array $paths,array $target,array $targets,array $aiLibraries=[],?string $preparedArduinoSource=null): array
     {
         $analysis=WorkflowEngine::analyze($paths);$type=(string)($target['type']??'');
         $framework=in_array($type,['arduino','arduino_define'],true)?'arduino':($type==='esp-idf'?'esp-idf':$analysis['framework']);
@@ -13,7 +13,7 @@ final class BuildMaterializer
             $workflow=TargetAnalyzer::filterMatrix($original,(string)$target['flag'],(string)$target['name'],(string)($target['matrix_field']??'flag'));
             return ['framework'=>$framework,'workflow'=>$workflow,'workflow_sha256'=>hash('sha256',$workflow),'configuration_sha256'=>$configDigest];
         }
-        $source=$framework==='arduino'?$github->sourceBundle($repository,$commit,$entries):'';$workflow=WorkflowEngine::workflow($framework,$paths,$source,$aiLibraries);
+        $source=$framework==='arduino'?($preparedArduinoSource??$github->sourceBundle($repository,$commit,$entries)):'';$workflow=WorkflowEngine::workflow($framework,$paths,$source,$aiLibraries);
         if($framework==='arduino'){$compatibility=WorkflowEngine::sourceCompatibilityStep($source);if($compatibility!=='')$workflow=str_replace('      - name: Compile firmware',$compatibility.'      - name: Compile firmware',$workflow);}
         if($framework==='arduino'&&!empty($target['core_version']))$workflow=preg_replace('/esp32:esp32@[0-9]+\.[0-9]+\.[0-9]+/','esp32:esp32@'.$target['core_version'],$workflow)??$workflow;
         if($framework==='arduino'&&!empty($target['nimble_version']))$workflow=preg_replace('/NimBLE-Arduino@[0-9]+\.[0-9]+\.[0-9]+/','NimBLE-Arduino@'.$target['nimble_version'],$workflow)??$workflow;

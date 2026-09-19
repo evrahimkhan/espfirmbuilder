@@ -7,4 +7,5 @@ if(str_contains($targets,'TargetAnalyzer::discover')||str_contains($targets,'AIT
 if(!str_contains($builds,"status='completed'")||!str_contains($builds,'result_encrypted')){fwrite(STDERR,"Dispatch must consume completed immutable analysis.\n");exit(1);}
 foreach(['workflow_encrypted','workflow_sha256','materialized_at','BuildMaterializer::materialize','readyTargets','targetFailures','No discovered hardware target could be safely materialized'] as $needle)if(!str_contains($worker.$migration,$needle)){fwrite(STDERR,"Worker materialization is missing {$needle}.\n");exit(1);}
 if(str_contains($builds,'WorkflowEngine::workflow(')||str_contains($builds,'sourceBundle(')){fwrite(STDERR,"Dispatch request still materializes source or workflows.\n");exit(1);}
+if(substr_count($worker,'->discoverLibraries(')!==1||substr_count($worker,'->sourceBundle(')!==1){fwrite(STDERR,"Worker must analyze repository source and AI libraries once per job, not once per target.\n");exit(1);}
 echo "Analysis queue and build-plan policy tests passed.\n";
