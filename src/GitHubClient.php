@@ -62,7 +62,7 @@ final class GitHubClient
         for($depth=0;$depth<50;$depth++){
             $sha=strtolower((string)($commit['sha']??''));$message=(string)($commit['commit']['message']??'');$files=$commit['files']??[];$parents=$commit['parents']??[];
             $espforgeOnly=str_starts_with($message,'ci: configure ESPForge for ')&&count($files)===1&&($files[0]['filename']??'')==='.github/workflows/espforge-build.yml'&&isset($parents[0]['sha']);
-            if(!$espforgeOnly)return $sha;$parent=strtolower((string)$parents[0]['sha'];$commit=$this->request('GET','/repos/'.$fullName.'/commits/'.$parent);
+            if(!$espforgeOnly)return $sha;$parent=strtolower((string)$parents[0]['sha']);$commit=$this->request('GET','/repos/'.$fullName.'/commits/'.$parent);
         }
         throw new RuntimeException('ESPForge could not resolve the underlying source revision safely.',409);
     }
