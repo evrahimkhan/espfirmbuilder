@@ -56,7 +56,7 @@ final class GitHubClient
         if(!preg_match('/^[a-f0-9]{40}$/',$headSha))throw new RuntimeException('GitHub did not return an immutable source revision.',502);
         if(is_string($knownSourceCommit)&&preg_match('/^[a-f0-9]{40}$/i',$knownSourceCommit)&&hash_equals($headSha,strtolower($knownSourceCommit)))return $headSha;
         if(is_string($knownSourceCommit)&&preg_match('/^[a-f0-9]{40}$/i',$knownSourceCommit)&&!hash_equals($headSha,strtolower($knownSourceCommit))){
-            try{$comparison=$this->request('GET','/repos/'.$fullName.'/compare/'.strtolower($knownSourceCommit).'...'.rawurlencode($headSha));$files=$comparison['files']??[];$onlyWorkflow=in_array($comparison['status']??'',['ahead','identical'],true)&&(count($files)===0||(count($files)===1&&($files[0]['filename']??'')==='.github/workflows/espforge-build.yml'));if($onlyWorkflow)return strtolower($knownSourceCommit);}catch(RuntimeException $comparisonError){if(!in_array($comparisonError->getCode(),[404,422],true))throw $comparisonError;}
+            try{$comparison=$this->request('GET','/repos/'.$fullName.'/compare/'.strtolower($knownSourceCommit).'...'.rawurlencode($headSha));$files=$comparison['files']??[];$statusSafe=in_array($comparison['status']??'',['ahead','identical'],true);$filesSafe=count($files)===0||(count($files)===1&&($files[0]['filename']??'')==='.github/workflows/espforge-build.yml');if($statusSafe&&$filesSafe)return strtolower($knownSourceCommit);}catch(RuntimeException $comparisonError){if(!in_array($comparisonError->getCode(),[404,422],true))throw $comparisonError;}
         }
         $commit=$head;
         for($depth=0;$depth<50;$depth++){
