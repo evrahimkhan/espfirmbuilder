@@ -101,7 +101,7 @@ try {
  $github=new GitHubClient(github_token((int)$user['id']));
  // Re-analyze and synchronize the workflow before every dispatch. This upgrades
  // projects connected with an older ESPForge generator without manual deletion.
- $commitSha=$github->sourceRevision($repository['full_name'],$repository['default_branch']);$tree=$github->tree($repository['full_name'],$commitSha); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');
+ $candidateQuery=db()->prepare("SELECT source_commit_sha FROM analysis_jobs WHERE repo_id=? AND status='completed' ORDER BY id DESC LIMIT 1");$candidateQuery->execute([$repo]);$knownSource=$candidateQuery->fetchColumn();$commitSha=$github->sourceRevision($repository['full_name'],$repository['default_branch'],is_string($knownSource)?$knownSource:null);$tree=$github->tree($repository['full_name'],$commitSha); $entries=$tree['tree']??[]; $paths=array_column($entries,'path');
  $analysis=WorkflowEngine::analyze($paths); $record=user_record((int)$user['id']);
  $provider=(string)($record['ai_provider']??''); $key=decrypt_secret($record['ai_api_key']??null);$analysisVersion=AppPolicy::ANALYZER_VERSION;$targetSessionKey=$repo.':'.$commitSha.':'.$analysisVersion;$targetPersistentKey=$repository['full_name'].':'.$commitSha.':'.$analysisVersion.':'.$provider.':'.(string)($record['ai_key_fingerprint']??'');
  $q=db()->prepare("SELECT result_encrypted FROM analysis_jobs WHERE repo_id=? AND source_commit_sha=? AND analyzer_version=? AND status='completed'");$q->execute([$repo,$commitSha,$analysisVersion]);$encryptedAnalysis=$q->fetchColumn();

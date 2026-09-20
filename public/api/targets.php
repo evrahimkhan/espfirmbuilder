@@ -10,7 +10,7 @@ if(!$repository)json_response(['error'=>'Repository not found.'],404);
 try{
     // Resolving the current immutable revision is intentionally short; source and
     // AI analysis itself is performed only by bin/analysis-worker.php.
-    $github=new GitHubClient(github_token((int)$user['id']));$commitSha=$github->sourceRevision($repository['full_name'],$repository['default_branch']);$tree=$github->tree($repository['full_name'],$commitSha);
+    $github=new GitHubClient(github_token((int)$user['id']));$candidateQuery=db()->prepare("SELECT source_commit_sha FROM analysis_jobs WHERE repo_id=? AND status='completed' ORDER BY id DESC LIMIT 1");$candidateQuery->execute([$repo]);$knownSource=$candidateQuery->fetchColumn();$commitSha=$github->sourceRevision($repository['full_name'],$repository['default_branch'],is_string($knownSource)?$knownSource:null);$tree=$github->tree($repository['full_name'],$commitSha);
     if(!preg_match('/^[a-f0-9]{40}$/',$commitSha))json_response(['error'=>'GitHub did not return an immutable source revision.'],502);
     $q=db()->prepare('SELECT * FROM analysis_jobs WHERE repo_id=? AND source_commit_sha=? AND analyzer_version=?');$q->execute([$repo,$commitSha,AppPolicy::ANALYZER_VERSION]);$job=$q->fetch();
     $progress=[];if($job&&is_string($job['progress_encrypted']??null)){$progressJson=decrypt_secret($job['progress_encrypted']);$decodedProgress=is_string($progressJson)?json_decode($progressJson,true):null;if(is_array($decodedProgress))$progress=array_slice($decodedProgress,-80);}

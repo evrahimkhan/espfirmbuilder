@@ -51,16 +51,20 @@ final class GitHubClient
     }
 
     public function repository(string $fullName): array { return $this->request('GET', '/repos/' . $fullName); }
-    public function sourceRevision(string $fullName,string $branch): string {
-        $reference=$branch;
-        for($depth=0;$depth<12;$depth++){
-            $commit=$this->request('GET','/repos/'.$fullName.'/commits/'.rawurlencode($reference));$sha=strtolower((string)($commit['sha']??''));
-            if(!preg_match('/^[a-f0-9]{40}$/',$sha))throw new RuntimeException('GitHub did not return an immutable source revision.',502);
-            $message=(string)($commit['commit']['message']??'');$files=$commit['files']??[];$parents=$commit['parents']??[];
-            $espforgeOnly=str_starts_with($message,'ci: configure ESPForge for ')&&count($files)===1&&($files[0]['filename']??'')==='.github/workflows/espforge-build.yml'&&isset($parents[0]['sha']);
-            if(!$espforgeOnly)return $sha;$reference=(string)$parents[0]['sha'];
+    public function sourceRevision(string $fullName,string $branch,?string $knownSourceCommit=null): string {
+        $head=$this->request('GET','/repos/'.$fullName.'/commits/'.rawurlencode($branch));$headSha=strtolower((string)($head['sha']??''));
+        if(!preg_match('/^[a-f0-9]{40}$/',$headSha))throw new RuntimeException('GitHub did not return an immutable source revision.',502);
+        if(is_string($knownSourceCommit)&&preg_match('/^[a-f0-9]{40}$/i',$knownSourceCommit)&&hash_equals($headSha,strtolower($knownSourceCommit)))return $headSha;
+        if(is_string($knownSourceCommit)&&preg_match('/^[a-f0-9]{40}$/i',$knownSourceCommit)&&!hash_equals($headSha,strtolower($knownSourceCommit))){
+            try{$comparison=$this->request('GET','/repos/'.$fullName.'/compare/'.strtolower($knownSourceCommit).'...'.rawurlencode($headSha));$files=$comparison['files']??[];$onlyWorkflow=in_array($comparison['status']??'',['ahead','identical'],true)&&(count($files)===0||(count($files)===1&&($files[0]['filename']??'')==='.github/workflows/espforge-build.yml'));if($onlyWorkflow)return strtolower($knownSourceCommit);}catch(RuntimeException $comparisonError){if(!in_array($comparisonError->getCode(),[404,422],true))throw $comparisonError;}
         }
-        throw new RuntimeException('Too many consecutive ESPForge workflow commits.',409);
+        $commit=$head;
+        for($depth=0;$depth<50;$depth++){
+            $sha=strtolower((string)($commit['sha']??''));$message=(string)($commit['commit']['message']??'');$files=$commit['files']??[];$parents=$commit['parents']??[];
+            $espforgeOnly=str_starts_with($message,'ci: configure ESPForge for ')&&count($files)===1&&($files[0]['filename']??'')==='.github/workflows/espforge-build.yml'&&isset($parents[0]['sha']);
+            if(!$espforgeOnly)return $sha;$parent=strtolower((string)$parents[0]['sha'];$commit=$this->request('GET','/repos/'.$fullName.'/commits/'.$parent);
+        }
+        throw new RuntimeException('ESPForge could not resolve the underlying source revision safely.',409);
     }
 
     public function tree(string $fullName, string $branch): array {
