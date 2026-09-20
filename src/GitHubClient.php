@@ -51,6 +51,18 @@ final class GitHubClient
     }
 
     public function repository(string $fullName): array { return $this->request('GET', '/repos/' . $fullName); }
+    public function sourceRevision(string $fullName,string $branch): string {
+        $reference=$branch;
+        for($depth=0;$depth<12;$depth++){
+            $commit=$this->request('GET','/repos/'.$fullName.'/commits/'.rawurlencode($reference));$sha=strtolower((string)($commit['sha']??''));
+            if(!preg_match('/^[a-f0-9]{40}$/',$sha))throw new RuntimeException('GitHub did not return an immutable source revision.',502);
+            $message=(string)($commit['commit']['message']??'');$files=$commit['files']??[];$parents=$commit['parents']??[];
+            $espforgeOnly=str_starts_with($message,'ci: configure ESPForge for ')&&count($files)===1&&($files[0]['filename']??'')==='.github/workflows/espforge-build.yml'&&isset($parents[0]['sha']);
+            if(!$espforgeOnly)return $sha;$reference=(string)$parents[0]['sha'];
+        }
+        throw new RuntimeException('Too many consecutive ESPForge workflow commits.',409);
+    }
+
     public function tree(string $fullName, string $branch): array {
         $tree=$this->request('GET', "/repos/{$fullName}/git/trees/" . rawurlencode($branch) . '?recursive=1');
         if(!empty($tree['truncated'])) throw new RuntimeException('This repository tree is too large for safe complete analysis. Use a smaller firmware-only repository or subproject.',422);

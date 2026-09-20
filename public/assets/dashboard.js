@@ -775,6 +775,13 @@ window.build = async (id) => {
     minimizeAnalysisTerminal();
     if (targets.length === 1) {
       const selected = targets[0];
+      if (selected.build_verification === "verified") {
+        await notify(
+          `${selected.name} already has a successful build for this source revision. It was skipped.`,
+          "Target already verified",
+        );
+        return;
+      }
       if (
         selected.requires_confirmation &&
         !(await ask(
@@ -791,7 +798,7 @@ window.build = async (id) => {
     list.innerHTML = targets
       .map(
         (t) =>
-          `<button type="button" data-target="${escapeHtml(t.id)}"><span class="target-copy"><b>${escapeHtml(t.name)} <em class="target-source ${escapeHtml(t.source || "deterministic")}">${escapeHtml(t.source === "ai_verified" ? "AI verified" : t.source === "ai" ? "AI review" : t.source === "fallback" ? "Inferred" : "Verified config")}</em></b><small>${escapeHtml(t.fqbn || t.environment || t.idf_target || t.type)}</small>${t.evidence ? `<small>Source: ${escapeHtml(t.evidence)}</small>` : ""}${t.warning ? `<small class="target-warning">${escapeHtml(t.warning)}</small>` : ""}</span><span class="target-arrow">→</span></button>`,
+          `<button type="button" data-target="${escapeHtml(t.id)}" ${t.build_verification === "verified" ? "disabled" : ""}><span class="target-copy"><b>${escapeHtml(t.name)} <em class="target-source ${escapeHtml(t.source || "deterministic")}">${escapeHtml(t.source === "ai_verified" ? "AI verified" : t.source === "ai" ? "AI review" : t.source === "fallback" ? "Inferred" : "Verified config")}</em>${t.build_verification ? `<em class="target-build-state ${escapeHtml(t.build_verification)}">${escapeHtml(t.build_verification === "verified" ? "✓ Build verified" : t.build_verification === "building" ? "● Building" : "! Build unverified")}</em>` : ""}</b><small>${escapeHtml(t.fqbn || t.environment || t.idf_target || t.type)}</small>${t.evidence ? `<small>Source: ${escapeHtml(t.evidence)}</small>` : ""}${t.warning ? `<small class="target-warning">${escapeHtml(t.warning)}</small>` : ""}</span><span class="target-arrow">→</span></button>`,
       )
       .join("");
     list.querySelectorAll("button").forEach(
@@ -811,6 +818,41 @@ window.build = async (id) => {
           runBuild(id, button.dataset.target, button);
         }),
     );
+    const pendingTargets = targets.filter(
+      (target) => !["verified", "building"].includes(target.build_verification),
+    );
+    const buildAll = $("#build-all-targets");
+    buildAll.disabled = pendingTargets.length === 0;
+    buildAll.textContent = pendingTargets.length
+      ? `Build all unverified targets (${pendingTargets.length})`
+      : "All targets are build verified";
+    buildAll.onclick = async () => {
+      if (
+        !(await ask(
+          `ESPForge will build ${pendingTargets.length} target${pendingTargets.length === 1 ? "" : "s"} one by one. This page must remain open until the batch is dispatched.`,
+          "Build all unverified targets",
+        ))
+      )
+        return;
+      dialog.close();
+      tab("builds");
+      for (let index = 0; index < pendingTargets.length; index++) {
+        const target = pendingTargets[index];
+        $("#build-refresh-status").textContent =
+          `Batch ${index + 1}/${pendingTargets.length}: dispatching ${target.name}…`;
+        const buildId = await runBuild(id, target.id, null, true);
+        if (!buildId) continue;
+        await waitForBatchBuild(
+          buildId,
+          index + 1,
+          pendingTargets.length,
+          target.name,
+        );
+      }
+      $("#build-refresh-status").textContent =
+        "Build-all batch finished. Failed targets remain unverified and can be retried.";
+      await refreshBuilds(true);
+    };
     dialog.showModal();
   } catch (x) {
     analysisRunning = false;
@@ -841,7 +883,24 @@ window.build = async (id) => {
     });
   }
 };
-async function runBuild(repoId, targetId, button = null) {
+async function waitForBatchBuild(buildId, position, total, name) {
+  for (let attempt = 0; attempt < 900; attempt++) {
+    const result = await api("api/builds.php?refresh=1");
+    const build = (result.builds || []).find(
+      (candidate) => Number(candidate.id) === Number(buildId),
+    );
+    if (build?.status === "completed") {
+      $("#build-refresh-status").textContent =
+        `Batch ${position}/${total}: ${name} ${build.conclusion === "success" ? "verified successfully" : `finished ${build.conclusion || "without verification"}`}.`;
+      return build.conclusion;
+    }
+    $("#build-refresh-status").textContent =
+      `Batch ${position}/${total}: building ${name}…`;
+    await new Promise((resolve) => setTimeout(resolve, 8000));
+  }
+  return "timed_out";
+}
+async function runBuild(repoId, targetId, button = null, batch = false) {
   try {
     if (button) {
       button.disabled = true;
@@ -851,13 +910,18 @@ async function runBuild(repoId, targetId, button = null) {
     tab("builds");
     $("#build-refresh-status").textContent =
       "Preparing workflow and dispatching the build…";
-    await api("api/builds.php", {
+    const dispatched = await api("api/builds.php", {
       method: "POST",
-      body: JSON.stringify({ repo_id: repoId, target_id: targetId }),
+      body: JSON.stringify({
+        action: batch ? "batch_dispatch" : "dispatch",
+        repo_id: repoId,
+        target_id: targetId,
+      }),
     });
     $("#build-refresh-status").textContent =
       "Build dispatched. Waiting for the GitHub runner…";
     await refreshBuilds(true);
+    return Number(dispatched.id) || null;
   } catch (x) {
     $("#build-refresh-status").textContent = "";
     await notify(x.message, "Build could not be started");
@@ -865,6 +929,7 @@ async function runBuild(repoId, targetId, button = null) {
       button.disabled = false;
       button.querySelector(".target-arrow").textContent = "→";
     }
+    return null;
   }
 }
 const targetDialog = $("#target-dialog");

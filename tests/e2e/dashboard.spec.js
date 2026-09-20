@@ -148,3 +148,49 @@ test("AI analysis terminal can be minimized and reopened while work continues", 
     /running|complete/i,
   );
 });
+
+test("target picker marks successful builds and excludes them from build all", async ({
+  page,
+}) => {
+  await mockDashboard(page);
+  await page.route("**/api/targets.php**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "ready",
+        targets: [
+          {
+            id: "verified",
+            name: "Verified board",
+            type: "arduino",
+            fqbn: "esp32:esp32:esp32",
+            build_verification: "verified",
+          },
+          {
+            id: "retry",
+            name: "Retry board",
+            type: "arduino",
+            fqbn: "esp32:esp32:esp32s3",
+            build_verification: "unverified",
+          },
+        ],
+      }),
+    });
+  });
+  await page.goto("/dashboard.html#repos");
+  await page.evaluate(() => {
+    void window.build(3);
+  });
+  await expect(page.locator("#target-dialog")).toBeVisible();
+  await expect(page.locator(".target-build-state.verified")).toContainText(
+    "Build verified",
+  );
+  await expect(page.locator(".target-build-state.unverified")).toContainText(
+    "Build unverified",
+  );
+  await expect(
+    page.locator('#target-list button[data-target="verified"]'),
+  ).toBeDisabled();
+  await expect(page.locator("#build-all-targets")).toContainText("(1)");
+});

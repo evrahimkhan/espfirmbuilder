@@ -3,13 +3,14 @@ require __DIR__.'/../../src/bootstrap.php';
 require __DIR__.'/../../src/GitHubClient.php';
 require __DIR__.'/../../src/AppPolicy.php';
 require_method('GET');
+function with_build_verification(int $repo,string $commit,array $targets): array {$q=db()->prepare("SELECT target_id,conclusion,status,id FROM builds WHERE repo_id=? AND source_commit_sha=? AND analyzer_version=? AND target_id IS NOT NULL ORDER BY id DESC LIMIT 2000");$q->execute([$repo,$commit,AppPolicy::ANALYZER_VERSION]);$latest=[];foreach($q->fetchAll() as $build){$id=(string)$build['target_id'];if($id!==''&&!isset($latest[$id]))$latest[$id]=$build;}foreach($targets as &$target){$build=$latest[(string)($target['id']??'')]??null;$target['build_verification']=$build===null?null:(($build['status']??'')!=='completed'?'building':(($build['conclusion']??'')==='success'?'verified':'unverified'));$target['verification_build_id']=$build===null?null:(int)$build['id'];}unset($target);return $targets;}
 $user=require_user();verify_csrf();rate_limit('targets',30,60);$repo=(int)($_GET['repo_id']??0);
 $q=db()->prepare('SELECT * FROM repositories WHERE id=? AND user_id=?');$q->execute([$repo,$user['id']]);$repository=$q->fetch();
 if(!$repository)json_response(['error'=>'Repository not found.'],404);
 try{
     // Resolving the current immutable revision is intentionally short; source and
     // AI analysis itself is performed only by bin/analysis-worker.php.
-    $github=new GitHubClient(github_token((int)$user['id']));$tree=$github->tree($repository['full_name'],$repository['default_branch']);$commitSha=strtolower((string)($tree['sha']??''));
+    $github=new GitHubClient(github_token((int)$user['id']));$commitSha=$github->sourceRevision($repository['full_name'],$repository['default_branch']);$tree=$github->tree($repository['full_name'],$commitSha);
     if(!preg_match('/^[a-f0-9]{40}$/',$commitSha))json_response(['error'=>'GitHub did not return an immutable source revision.'],502);
     $q=db()->prepare('SELECT * FROM analysis_jobs WHERE repo_id=? AND source_commit_sha=? AND analyzer_version=?');$q->execute([$repo,$commitSha,AppPolicy::ANALYZER_VERSION]);$job=$q->fetch();
     $progress=[];if($job&&is_string($job['progress_encrypted']??null)){$progressJson=decrypt_secret($job['progress_encrypted']);$decodedProgress=is_string($progressJson)?json_decode($progressJson,true):null;if(is_array($decodedProgress))$progress=array_slice($decodedProgress,-80);}
@@ -25,5 +26,5 @@ try{
     }
     $json=decrypt_secret($job['result_encrypted']??null);$result=is_string($json)?json_decode($json,true):null;
     if(!is_array($result)){db()->prepare("UPDATE analysis_jobs SET status='queued',result_encrypted=NULL,available_at=NOW() WHERE id=?")->execute([$job['id']]);json_response(['status'=>'analyzing','retry_after'=>2],202);}
-    json_response(['status'=>'ready','targets'=>$result['targets']??[],'ai_primary'=>(bool)($result['ai']??false),'cached'=>true,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION,'schema_version'=>AppPolicy::TARGET_SCHEMA_VERSION,'policy_versions'=>AppPolicy::versions()]);
+    $verifiedTargets=with_build_verification($repo,$commitSha,is_array($result['targets']??null)?$result['targets']:[]);json_response(['status'=>'ready','targets'=>$verifiedTargets,'ai_primary'=>(bool)($result['ai']??false),'cached'=>true,'commit_sha'=>$commitSha,'analyzer_version'=>AppPolicy::ANALYZER_VERSION,'schema_version'=>AppPolicy::TARGET_SCHEMA_VERSION,'policy_versions'=>AppPolicy::versions()]);
 }catch(RuntimeException $e){if($e instanceof PDOException)throw $e;json_response(['error'=>$e->getMessage()],$e->getCode()>=400&&$e->getCode()<600?$e->getCode():502);}
