@@ -19,7 +19,7 @@ try{
     $required=[
         'users'=>['email_verified_at','session_version','ai_key_fingerprint'],
         'repositories'=>['user_id','full_name'],
-        'builds'=>['build_uuid','target_id','target_name','source_commit_sha','analyzer_version','target_config_json','workflow_sha256','github_run_id','completed_at'],
+        'builds'=>['build_uuid','client_request_uuid','target_id','target_name','source_commit_sha','analyzer_version','target_config_json','workflow_sha256','github_run_id','completed_at'],
         'schema_migrations'=>['migration','checksum','applied_at'],
         'audit_events'=>['event_type','metadata_json'],
         'password_reset_tokens'=>['token_hash','expires_at'],

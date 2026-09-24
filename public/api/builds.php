@@ -82,6 +82,8 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
 }
 $data=body();
 $buildAction=(string)($data['action']??'dispatch');
+$clientRequestUuid=(string)($data['client_request_uuid']??'');if($clientRequestUuid!==''&&!preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i',$clientRequestUuid))json_response(['error'=>'Invalid build request identifier.'],422);
+if($clientRequestUuid!==''){$existing=db()->prepare('SELECT b.id,b.status FROM builds b JOIN repositories r ON r.id=b.repo_id WHERE b.client_request_uuid=? AND r.user_id=?');$existing->execute([$clientRequestUuid,$user['id']]);$existingBuild=$existing->fetch();if($existingBuild)json_response(['id'=>(int)$existingBuild['id'],'status'=>$existingBuild['status'],'workflow'=>'espforge-build.yml','duplicate'=>true],202);}
 $buildLimit=$buildAction==='dispatch'?5:($buildAction==='batch_dispatch'?120:20);$buildWindow=$buildAction==='dispatch'?600:($buildAction==='batch_dispatch'?3600:60);rate_limit('build-'.$buildAction,$buildLimit,$buildWindow);
 if(($data['action']??'')==='clear_logs'){
  // Hide completed log entries without deleting build records, so monthly build
@@ -125,7 +127,7 @@ try {
  try { $github->enableWorkflow($repository['full_name'],$workflowFile); }
  catch(RuntimeException $e){ if(!in_array($e->getCode(),[404,422],true)) throw $e; }
  $workflowDigest=hash('sha256',$workflow);$aiModel=($target['ai_primary']??false)?AppPolicy::aiModel($config,$provider):null;
- $q=db()->prepare("INSERT INTO builds(repo_id,build_uuid,target_id,target_name,source_commit_sha,analyzer_version,ai_model,target_config_json,workflow_sha256,status,logs) VALUES(?,?,?,?,?,?,?,?,?,'queued',?)"); $q->execute([$repo,$buildUuid,substr((string)($target['id']??''),0,190),substr((string)$target['name'],0,120),preg_match('/^[a-f0-9]{40}$/i',$commitSha)?strtolower($commitSha):null,$analysisVersion,$aiModel,$targetConfigJson,$workflowDigest,$buildMessage]); $buildId=(int)db()->lastInsertId();
+ $q=db()->prepare("INSERT INTO builds(repo_id,build_uuid,client_request_uuid,target_id,target_name,source_commit_sha,analyzer_version,ai_model,target_config_json,workflow_sha256,status,logs) VALUES(?,?,?,?,?,?,?,?,?,?,'queued',?)"); $q->execute([$repo,$buildUuid,$clientRequestUuid!==''?strtolower($clientRequestUuid):null,substr((string)($target['id']??''),0,190),substr((string)$target['name'],0,120),preg_match('/^[a-f0-9]{40}$/i',$commitSha)?strtolower($commitSha):null,$analysisVersion,$aiModel,$targetConfigJson,$workflowDigest,$buildMessage]); $buildId=(int)db()->lastInsertId();
  try { $github->dispatch($repository['full_name'],$workflowFile,$repository['default_branch'],$inputs,$target['type']!=='workflow_matrix'); }
  catch(RuntimeException $dispatchError){ db()->prepare("UPDATE builds SET status='completed',conclusion='failure',completed_at=NOW(),logs=? WHERE id=?")->execute(['Dispatch failed: '.$dispatchError->getMessage(),$buildId]); throw $dispatchError; }
  db()->prepare("UPDATE build_plans SET status='dispatched',dispatched_at=NOW() WHERE id=? AND approved_by=?")->execute([$plan['id'],$user['id']]);

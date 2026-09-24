@@ -10,6 +10,7 @@ $workflows=[
 foreach($workflows as $workflow){
     if(preg_match('/uses:\s+[^\s]+@(?![a-f0-9]{40}(?:\s|$))/i',$workflow)){fwrite(STDERR,"Generated workflow contains a mutable action reference.\n");exit(1);}
     if(preg_match('/curl[^\n|]*\|\s*(?:sh|bash)/i',$workflow)){fwrite(STDERR,"Generated workflow contains a remote shell pipeline.\n");exit(1);}
+    if(!str_contains($workflow,'group: espforge-firmware-${{ github.repository }}')){fwrite(STDERR,"Generated workflows do not serialize repository build batches.\n");exit(1);}
     if(!str_contains($workflow,"permissions:\n  contents: read")){fwrite(STDERR,"Generated workflow is not read-only.\n");exit(1);}
     if(!str_contains($workflow,'ref: ${{ inputs.espforge_source_commit || github.event.client_payload.espforge_source_commit }}')||!str_contains($workflow,"persist-credentials: false\n          submodules: recursive")){fwrite(STDERR,"Generated workflow does not pin checkout to immutable source or safely initialize submodules.\n");exit(1);}
 }

@@ -28,7 +28,7 @@ CREATE TABLE repositories (
  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, INDEX(user_id), UNIQUE KEY uq_repositories_user_full_name(user_id, full_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE builds (
- id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, repo_id BIGINT UNSIGNED NOT NULL, build_uuid CHAR(36) NULL UNIQUE,
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, repo_id BIGINT UNSIGNED NOT NULL, build_uuid CHAR(36) NULL UNIQUE, client_request_uuid CHAR(36) NULL UNIQUE,
  target_id VARCHAR(190) NULL, target_name VARCHAR(120) NULL, source_commit_sha CHAR(40) NULL,
  analyzer_version VARCHAR(40) NULL, ai_model VARCHAR(100) NULL, target_config_json JSON NULL, workflow_sha256 CHAR(64) NULL,
  github_run_id BIGINT UNSIGNED NULL, status VARCHAR(30) DEFAULT 'queued', conclusion VARCHAR(30) NULL, logs MEDIUMTEXT NULL, artifact_url VARCHAR(1000) NULL,

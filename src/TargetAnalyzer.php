@@ -169,6 +169,8 @@ final class TargetAnalyzer
             if(!preg_match('/^permissions\s*:/m',$yaml)) throw new RuntimeException('The repository workflow has no recognizable jobs section.',422);
         }
 
+        if(!preg_match('/^concurrency\s*:/m',$yaml))$yaml=preg_replace('/^jobs\s*:/m',"concurrency:\n  group: espforge-firmware-\${{ github.repository }}\n  cancel-in-progress: false\n\njobs:",$yaml,1)??$yaml;
+
         // Existing matrix workflows vary widely. Add one dispatch input without
         // touching their jobs, permissions, matrix, release flags, or other inputs.
         if(preg_match('/^(\s*)workflow_dispatch:\s*\{\s*\}\s*$/m',$yaml,$match)){

@@ -286,6 +286,8 @@ async function load() {
   }
   if (flashesResult.status === "fulfilled")
     $("#flash-count").textContent = flashesResult.value.monthly_total ?? 0;
+  if (localStorage.getItem("espforge-build-batch"))
+    queueMicrotask(() => resumeBuildBatch());
 }
 const expandedBuilds = new Set(),
   buildJobCache = new Map(),
@@ -834,24 +836,32 @@ window.build = async (id) => {
         ))
       )
         return;
+      const requestId = () => {
+        if (crypto.randomUUID) return crypto.randomUUID();
+        const bytes = crypto.getRandomValues(new Uint8Array(16));
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = [...bytes]
+          .map((byte) => byte.toString(16).padStart(2, "0"))
+          .join("");
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      };
+      localStorage.setItem(
+        "espforge-build-batch",
+        JSON.stringify({
+          repoId: id,
+          next: 0,
+          createdAt: Date.now(),
+          targets: pendingTargets.map((target) => ({
+            id: target.id,
+            name: target.name,
+            requestId: requestId(),
+          })),
+        }),
+      );
       dialog.close();
       tab("builds");
-      for (let index = 0; index < pendingTargets.length; index++) {
-        const target = pendingTargets[index];
-        $("#build-refresh-status").textContent =
-          `Batch ${index + 1}/${pendingTargets.length}: dispatching ${target.name}…`;
-        const buildId = await runBuild(id, target.id, null, true);
-        if (!buildId) continue;
-        await waitForBatchBuild(
-          buildId,
-          index + 1,
-          pendingTargets.length,
-          target.name,
-        );
-      }
-      $("#build-refresh-status").textContent =
-        "Build-all batch finished. Failed targets remain unverified and can be retried.";
-      await refreshBuilds(true);
+      await resumeBuildBatch();
     };
     dialog.showModal();
   } catch (x) {
@@ -883,24 +893,54 @@ window.build = async (id) => {
     });
   }
 };
-async function waitForBatchBuild(buildId, position, total, name) {
-  for (let attempt = 0; attempt < 900; attempt++) {
-    const result = await api("api/builds.php?refresh=1");
-    const build = (result.builds || []).find(
-      (candidate) => Number(candidate.id) === Number(buildId),
-    );
-    if (build?.status === "completed") {
-      $("#build-refresh-status").textContent =
-        `Batch ${position}/${total}: ${name} ${build.conclusion === "success" ? "verified successfully" : `finished ${build.conclusion || "without verification"}`}.`;
-      return build.conclusion;
-    }
-    $("#build-refresh-status").textContent =
-      `Batch ${position}/${total}: building ${name}…`;
-    await new Promise((resolve) => setTimeout(resolve, 8000));
+let buildBatchResuming = false;
+async function resumeBuildBatch() {
+  if (buildBatchResuming) return;
+  let batch;
+  try {
+    batch = JSON.parse(localStorage.getItem("espforge-build-batch") || "null");
+  } catch (_) {
+    localStorage.removeItem("espforge-build-batch");
+    return;
   }
-  return "timed_out";
+  if (!batch?.repoId || !Array.isArray(batch.targets)) return;
+  if (Date.now() - Number(batch.createdAt || 0) > 24 * 60 * 60 * 1000) {
+    localStorage.removeItem("espforge-build-batch");
+    return;
+  }
+  buildBatchResuming = true;
+  tab("builds");
+  try {
+    while (batch.next < batch.targets.length) {
+      const target = batch.targets[batch.next];
+      $("#build-refresh-status").textContent =
+        `Queueing ${batch.next + 1}/${batch.targets.length}: ${target.name}…`;
+      const buildId = await runBuild(
+        batch.repoId,
+        target.id,
+        null,
+        true,
+        target.requestId,
+      );
+      if (!buildId) return;
+      batch.next++;
+      localStorage.setItem("espforge-build-batch", JSON.stringify(batch));
+    }
+    localStorage.removeItem("espforge-build-batch");
+    $("#build-refresh-status").textContent =
+      `${batch.targets.length} builds queued. GitHub will run them one by one, even if this page is closed.`;
+    await refreshBuilds(true);
+  } finally {
+    buildBatchResuming = false;
+  }
 }
-async function runBuild(repoId, targetId, button = null, batch = false) {
+async function runBuild(
+  repoId,
+  targetId,
+  button = null,
+  batch = false,
+  clientRequestUuid = null,
+) {
   try {
     if (button) {
       button.disabled = true;
@@ -916,11 +956,12 @@ async function runBuild(repoId, targetId, button = null, batch = false) {
         action: batch ? "batch_dispatch" : "dispatch",
         repo_id: repoId,
         target_id: targetId,
+        client_request_uuid: clientRequestUuid,
       }),
     });
     $("#build-refresh-status").textContent =
       "Build dispatched. Waiting for the GitHub runner…";
-    await refreshBuilds(true);
+    if (!batch) await refreshBuilds(true);
     return Number(dispatched.id) || null;
   } catch (x) {
     $("#build-refresh-status").textContent = "";
