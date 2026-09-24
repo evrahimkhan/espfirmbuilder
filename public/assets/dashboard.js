@@ -893,6 +893,24 @@ window.build = async (id) => {
     });
   }
 };
+async function waitForBatchBuild(buildId, position, total, name) {
+  for (let attempt = 0; attempt < 900; attempt++) {
+    const result = await api("api/builds.php?refresh=1");
+    const build = (result.builds || []).find(
+      (candidate) => Number(candidate.id) === Number(buildId),
+    );
+    if (build?.status === "completed") {
+      $("#build-refresh-status").textContent =
+        `Build ${position}/${total}: ${name} finished ${build.conclusion || "without verification"}.`;
+      return;
+    }
+    $("#build-refresh-status").textContent =
+      `Build ${position}/${total}: ${name} is running. The next target will start after it finishes.`;
+    await new Promise((resolve) => setTimeout(resolve, 8000));
+  }
+  throw new Error(`Timed out waiting for ${name} to finish.`);
+}
+
 let buildBatchResuming = false;
 async function resumeBuildBatch() {
   if (buildBatchResuming) return;
@@ -923,13 +941,22 @@ async function resumeBuildBatch() {
         target.requestId,
       );
       if (!buildId) return;
+      await waitForBatchBuild(
+        buildId,
+        batch.next + 1,
+        batch.targets.length,
+        target.name,
+      );
       batch.next++;
       localStorage.setItem("espforge-build-batch", JSON.stringify(batch));
     }
     localStorage.removeItem("espforge-build-batch");
     $("#build-refresh-status").textContent =
-      `${batch.targets.length} builds queued. GitHub will run them one by one, even if this page is closed.`;
+      `${batch.targets.length} builds finished. Build-all progress is saved and resumes safely after a refresh.`;
     await refreshBuilds(true);
+  } catch (error) {
+    $("#build-refresh-status").textContent =
+      `Build-all paused: ${error.message}. Refresh to resume safely.`;
   } finally {
     buildBatchResuming = false;
   }
